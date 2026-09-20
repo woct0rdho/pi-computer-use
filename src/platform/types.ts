@@ -1,9 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { LookResponse } from "../outline.ts";
-import type { PermissionStatus } from "../permissions.ts";
 
-export type PlatformName = "macos" | "windows" | "linux";
-export type NativeInputDelivery = "hid" | "pid";
+export type PlatformName = "windows";
 export type ActOutcome = "worked" | "didnt" | "unknown";
 /**
  * Best-effort presentation hint for a root. The seam guarantees only the
@@ -11,27 +9,19 @@ export type ActOutcome = "worked" | "didnt" | "unknown";
  * and must never drive behavior in shared code. Platforms that need precise
  * distinctions internally should use native signals.
  */
-export type PlatformRootKind = "window" | "menu" | "sheet" | "popover" | "dialog";
+export type PlatformRootKind = "window" | "menu" | "popover" | "dialog";
 
 export interface PlatformDiagnostics {
 	protocolVersion: number;
 	architectureVersion?: number;
 	invariants?: string[];
 	pid: number;
-	parentPid?: number;
-	parentAppName?: string;
-	parentBundleId?: string;
-	parentPath?: string;
-	executablePath?: string;
 	os?: string;
 	arch?: string;
 	accessibility?: boolean;
-	screenRecording?: boolean;
 }
 
 export interface PlatformReadyState {
-	permissionStatus?: PermissionStatus;
-	lastPermissionCheckAt: number;
 	helperDiagnostics?: PlatformDiagnostics;
 }
 
@@ -42,7 +32,6 @@ export interface PlatformRootQuery {
 
 export interface PlatformApp {
 	appName: string;
-	bundleId?: string;
 	pid: number;
 	isFrontmost?: boolean;
 }
@@ -61,7 +50,6 @@ export interface PlatformRoot {
 	windowId?: number;
 	pid?: number;
 	appName?: string;
-	bundleId?: string;
 	title: string;
 	role?: string;
 	subrole?: string;
@@ -80,7 +68,6 @@ export interface PlatformRoot {
 
 export interface PlatformFrontmostResult {
 	appName: string;
-	bundleId?: string;
 	pid: number;
 	windowTitle?: string;
 	windowId?: number;
@@ -95,8 +82,8 @@ export interface PlatformFocusWindowResult {
 
 export interface HelperActPerformed {
 	grounding?: "description" | "coordinates" | "keyboard-events";
-	/** `ax` means the platform accessibility API (AX on macOS, UIA on Windows). */
-	delivery?: "ax" | NativeInputDelivery;
+	/** `ax` means the Windows UIA accessibility API. */
+	delivery?: "ax" | "hid";
 	refound?: boolean;
 	/** Free-form diagnostic naming the platform's delta mechanism. */
 	deltaSource?: string;
@@ -147,7 +134,6 @@ export interface PlatformObserveRequest {
 export type PlatformActTarget = { ref: string } | { x: number; y: number } | { focus: PlatformPoint };
 type PlatformDeliveryPolicy = "ax_only" | "background" | "default" | "foreground";
 type PlatformMouseButton = "left" | "right" | "middle";
-type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
 export type PlatformPoint = { x: number; y: number };
 
 export interface PlatformActRequestBase {
@@ -158,13 +144,13 @@ export interface PlatformActRequestBase {
 }
 
 export type PlatformActRequest = PlatformActRequestBase & (
-	| { action: "press" | "click"; params: { button?: PlatformMouseButton; clickCount?: number } & PlatformActDeliveryParam }
-	| { action: "setText"; params: { text: string } & PlatformActDeliveryParam }
-	| { action: "typeText"; params: { text: string } & PlatformActDeliveryParam }
-	| { action: "keypress"; params: { keys: string[] } & PlatformActDeliveryParam }
-	| { action: "scroll"; params: { scrollX: number; scrollY: number } & PlatformActDeliveryParam }
-	| { action: "drag"; params: { path: PlatformPoint[] } & PlatformActDeliveryParam }
-	| { action: "moveMouse"; params: PlatformActDeliveryParam }
+	| { action: "press" | "click"; params: { button?: PlatformMouseButton; clickCount?: number } }
+	| { action: "setText"; params: { text: string } }
+	| { action: "typeText"; params: { text: string } }
+	| { action: "keypress"; params: { keys: string[] } }
+	| { action: "scroll"; params: { scrollX: number; scrollY: number } }
+	| { action: "drag"; params: { path: PlatformPoint[] } }
+	| { action: "moveMouse"; params: Record<string, never> }
 );
 
 export interface PlatformReadTextRequest {
@@ -216,7 +202,7 @@ export interface ComputerUsePlatformBackend {
 	actBatch?(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
 	readText(args: PlatformReadTextRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformReadTextResponse>;
 	waitFor(args: PlatformWaitForRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformWaitForResponse>;
-	isBrowserApp(appName: string, bundleId?: string): boolean;
-	isChromeFamilyApp(appName: string, bundleId?: string): boolean;
-	openBrowserLocation(target: { appName: string; bundleId?: string }, url: string, signal?: AbortSignal): Promise<boolean>;
+	isBrowserApp(appName: string): boolean;
+	isChromeFamilyApp(appName: string): boolean;
+	openBrowserLocation(target: { appName: string }, url: string, signal?: AbortSignal): Promise<boolean>;
 }

@@ -56,7 +56,6 @@ function parseRoots(result: unknown): PlatformRoot[] {
 			windowId: Number.isFinite(raw?.windowId) ? Math.trunc(raw.windowId) : undefined,
 			pid: Number.isFinite(raw?.pid) ? Math.trunc(raw.pid) : undefined,
 			appName: toOptionalString(raw?.appName ?? raw?.processName),
-			bundleId: toOptionalString(raw?.bundleId),
 			title: toOptionalString(raw?.title) ?? "",
 			role: toOptionalString(raw?.role),
 			subrole: toOptionalString(raw?.subrole),
@@ -78,7 +77,7 @@ function appsFromRoots(roots: PlatformRoot[]): PlatformApp[] {
 	return roots.flatMap((root) => {
 		if (!root.pid || seen.has(root.pid)) return [];
 		seen.add(root.pid);
-		return [{ appName: root.appName ?? "Unknown", bundleId: root.bundleId, pid: root.pid, isFrontmost: root.isFocused }];
+		return [{ appName: root.appName ?? "Unknown", pid: root.pid, isFrontmost: root.isFocused }];
 	});
 }
 
@@ -94,7 +93,7 @@ async function ensureReady(_ctx: unknown, state: PlatformReadyState, signal?: Ab
 		throw new Error(`Windows helper protocol mismatch: expected ${WINDOWS_HELPER_PROTOCOL_VERSION}, got ${diagnostics?.protocolVersion ?? "unknown"}. Restart Pi to use the installed helper.`);
 	}
 	assertPlatformArchitecture("Windows", diagnostics);
-	return { ...state, lastPermissionCheckAt: Date.now(), helperDiagnostics: diagnostics };
+	return { ...state, helperDiagnostics: diagnostics };
 }
 
 export const windowsBackend: ComputerUsePlatformBackend = {
@@ -113,7 +112,7 @@ export const windowsBackend: ComputerUsePlatformBackend = {
 		const roots = parseRoots(await windowsHelper.command("listRoots", {}, { signal }));
 		const focused = roots.find((root) => root.isFocused) ?? roots[0];
 		if (!focused?.pid) throw new Error("No frontmost window was available.");
-		return { appName: focused.appName ?? "Unknown", bundleId: focused.bundleId, pid: focused.pid, windowTitle: focused.title, windowId: focused.windowId, rootRef: focused.rootRef };
+		return { appName: focused.appName ?? "Unknown", pid: focused.pid, windowTitle: focused.title, windowId: focused.windowId, rootRef: focused.rootRef };
 	},
 	async focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult> {
 		return await windowsHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target }, { signal });
@@ -135,7 +134,7 @@ export const windowsBackend: ComputerUsePlatformBackend = {
 	},
 	isBrowserApp(appName: string): boolean { return classifyBrowser(appName) !== false; },
 	isChromeFamilyApp(appName: string): boolean { return classifyBrowser(appName) === "chrome" || classifyBrowser(appName) === "edge" || classifyBrowser(appName) === "brave"; },
-	async openBrowserLocation(target: { appName: string; bundleId?: string }, url: string, signal?: AbortSignal): Promise<boolean> {
+	async openBrowserLocation(target: { appName: string }, url: string, signal?: AbortSignal): Promise<boolean> {
 		await windowsHelper.command("openBrowserLocation", { ...target, url }, { signal, timeoutMs: 10_000 });
 		return true;
 	},

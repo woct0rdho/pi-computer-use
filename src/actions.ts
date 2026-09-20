@@ -62,8 +62,7 @@ function nativeTarget(action: UiAction, operation: PreparedAction["action"], env
 			env.validatePoint(point.x, point.y);
 			return point;
 		}
-		const onlyIncidentalActions = node.actions.every((candidate) => candidate === "AXShowMenu" || candidate === "AXScrollToVisible");
-		if (node.wireRef && !node.pictureOnly && (!semanticClick || node.canPress || node.canFocus || node.canSetValue || !onlyIncidentalActions)) {
+		if (node.wireRef && !node.pictureOnly && (!semanticClick || node.canPress || node.canFocus || node.canSetValue)) {
 			return { ref: node.wireRef };
 		}
 		const point = env.center(node);

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   test:
     name: Typecheck and tests
-    runs-on: macos-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -35,24 +35,19 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Run checks
-        run: npm test && npm run test:platform && npm run test:windows-scripts
+        run: npm test
 
       - name: Check commit messages
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: npm run test:commits
 
-  linux-native:
-    name: Linux native (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+  windows-native:
+    name: Windows native helper
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: native/windows/bridge-rs
 
     steps:
       - name: Checkout
@@ -60,32 +55,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
+      - name: Test Windows helper
+        run: cargo test --locked -j1
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build Windows helper
+        run: node ../../scripts/build-native.mjs
 
-      - name: Run Linux platform checks
-        run: npm run typecheck && npm run test:linux && npm run test:linux-scripts
-
-      - name: Test and lint Linux helper
-        if: matrix.arch == 'x64'
-        working-directory: native/linux/bridge-rs
+      - name: Validate Windows helper
+        shell: pwsh
         run: |
-          cargo test --locked -j1
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo fmt --all -- --check
-
-      - name: Build Linux helper
-        run: npm run build:linux -- --arch "${{ matrix.arch }}"
-
-      - name: Validate Linux helper
-        run: |
-          set -euo pipefail
-          binary="prebuilt/linux/${{ matrix.arch }}/linux-bridge"
-          test -x "$binary"
-          file "$binary" | grep -q 'ELF 64-bit'
+          $binary = Resolve-Path "..\..\prebuilt\windows\windows-bridge.exe"
+          $bytes = [System.IO.File]::ReadAllBytes($binary)
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+            throw "Windows helper is not a PE executable: $binary"
+          }
+          Write-Host "Validated Windows helper at $binary"

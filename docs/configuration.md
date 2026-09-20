@@ -1,19 +1,19 @@
 # Configuration
 
-Configuration controls browser access, strict accessibility execution, and the macOS agent cursor.
+Configuration controls browser access and strict accessibility execution.
 
 ## Files
 
 Global config:
 
 ```text
-~/.pi/agent/extensions/pi-computer-use.json
+%USERPROFILE%\.pi\agent\extensions\pi-computer-use.json
 ```
 
 Project config:
 
 ```text
-.pi/computer-use.json
+.pi\computer-use.json
 ```
 
 Project config overrides global config. Environment variables override both.
@@ -24,8 +24,7 @@ Example:
 {
   "browser_use": true,
   "managed_browser": "chrome",
-  "headless": false,
-  "cursor_overlay": true
+  "headless": false
 }
 ```
 
@@ -39,7 +38,7 @@ Default: `true`
 
 When `false`, the extension refuses known browser windows. This is useful for projects that should not control browsers.
 
-Known browser families include Safari, Chrome and Chromium-family browsers, Firefox, Arc, Brave, Edge, Vivaldi, and Helium.
+Known browser families include Chrome and Chromium-family browsers, Firefox, Brave, Edge, Vivaldi, Opera, and Helium.
 
 ### `managed_browser`
 
@@ -51,13 +50,7 @@ Selects `"helium"` or `"chrome"` for `launch_browser`. The debugging port is alw
 
 Default: `false`
 
-When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, cursor takeover, and the agent cursor overlay are blocked. When `false` (the default), Pi prefers verified semantic activation when it is credible, preserves the focus established by editable clicks for dependent keyboard input, and may retry keyboard input in the foreground when a background attempt conclusively produced no value change. Ambiguous pointer actions are never replayed blindly.
-
-### `cursor_overlay`
-
-Default: `true`
-
-When `true`, macOS pointer actions enqueue a click-through agent cursor animation to the native grounded point during non-headless background delivery. Foreground actions that control the physical cursor don't display the overlay. The overlay doesn't move the system pointer, accept input, or delay the action. Set it to `false` for invisible automation. `headless: true` always suppresses it regardless of this setting.
+When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover are blocked. When `false` (the default), Pi prefers verified semantic activation when it is credible, preserves the focus established by editable clicks for dependent keyboard input, and may retry keyboard input in the foreground when a background attempt conclusively produced no value change. Ambiguous pointer actions are never replayed blindly.
 
 ## Environment variables
 
@@ -66,20 +59,19 @@ PI_COMPUTER_USE_BROWSER_USE=0
 PI_COMPUTER_USE_BROWSER_USE=1
 PI_COMPUTER_USE_MANAGED_BROWSER=helium
 PI_COMPUTER_USE_MANAGED_BROWSER=chrome
-PI_COMPUTER_USE_CHROME_EXECUTABLE=/absolute/path/to/chrome
-PI_COMPUTER_USE_HELIUM_EXECUTABLE=/absolute/path/to/helium
+PI_COMPUTER_USE_CHROME_EXECUTABLE=C:\path\to\chrome.exe
+PI_COMPUTER_USE_HELIUM_EXECUTABLE=C:\path\to\helium.exe
 PI_COMPUTER_USE_HEADLESS=0
 PI_COMPUTER_USE_HEADLESS=1
-PI_COMPUTER_USE_CURSOR_OVERLAY=0
-PI_COMPUTER_USE_CURSOR_OVERLAY=1
 PI_COMPUTER_USE_DELIVERY_POLICY=default
 PI_COMPUTER_USE_DELIVERY_POLICY=foreground
 PI_COMPUTER_USE_CDP_PORT=9222
+PI_COMPUTER_USE_WINDOWS_HELPER_PATH=C:\path\to\windows-bridge.exe
 ```
 
 `PI_COMPUTER_USE_HEADLESS=1` prohibits foreground fallback. `PI_COMPUTER_USE_DELIVERY_POLICY` is a debugging input; normal policy belongs in configuration rather than individual model calls.
 
-`launch_browser` searches common platform install locations and `PATH`. Use `PI_COMPUTER_USE_CHROME_EXECUTABLE` or `PI_COMPUTER_USE_HELIUM_EXECUTABLE` for an AppImage, portable install, or any non-standard location. An explicit override is authoritative and must name an executable file.
+`launch_browser` searches common Windows install locations and `PATH`. Use `PI_COMPUTER_USE_CHROME_EXECUTABLE` or `PI_COMPUTER_USE_HELIUM_EXECUTABLE` for a portable or non-standard install. An explicit override is authoritative and must name an executable file.
 
 ## CDP browser support
 

@@ -10,7 +10,6 @@ interface NoteRegion {
 export interface WindowNote {
 	windowRef: string;
 	title: string;
-	pairing: "exact" | "high" | "low";
 	lastLookId?: string;
 	regions: NoteRegion[];
 }
@@ -18,14 +17,10 @@ export interface WindowNote {
 interface NoteWindowInput {
 	windowRef?: string;
 	title: string;
-	pairing?: "exact" | "high" | "low";
-	pairingScore?: number;
 }
 
 interface NoteRefreshOutcome {
 	window: NoteWindowInput;
-	windowChanged?: boolean;
-	newWindowLabel?: string;
 	rootDelta?: Array<{ change: string; kind: string; title?: string; ref?: string }>;
 }
 
@@ -38,7 +33,7 @@ function nodeLabel(node: OutlineNode): string {
 }
 
 function regionKey(node: OutlineNode): string {
-	return `${node.role || "AXUnknown"}:${node.identifier || normalizedLabel(nodeLabel(node)) || node.ref}`;
+	return `${node.role || "Unknown"}:${node.identifier || normalizedLabel(nodeLabel(node)) || node.ref}`;
 }
 
 function regionLabel(node: OutlineNode): string {
@@ -114,21 +109,11 @@ export function noteFromLook(prev: WindowNote | undefined, outline: Outline, win
 		}
 	}
 
-	if (!window.windowRef || window.pairingScore === Number.NEGATIVE_INFINITY) {
-		regions.push({
-			key: "window:unpaired",
-			label: "window capture",
-			status: "never-looked",
-			detail: "AX window without capture pairing",
-		});
-	}
-
 	regions.push(...frontierRegions(outline, topLevels));
 
 	return {
-		windowRef: window.windowRef ?? "(unpaired)",
+		windowRef: window.windowRef ?? "(unknown)",
 		title: window.title,
-		pairing: window.pairing ?? "low",
 		lastLookId: outline.lookId,
 		regions: uniqueRegions(regions),
 	};
@@ -158,17 +143,6 @@ export function noteAfterAct(prev: WindowNote | undefined, targetRef: string | u
 			detail: `root ${delta.change}`,
 		});
 	}
-	if (refreshOutcome.windowChanged) {
-		for (const region of note.regions) {
-			if (region.status === "seen") region.status = "changed";
-		}
-		note.regions.push({
-			key: `window:changed:${note.lastLookId ?? "unknown"}`,
-			label: refreshOutcome.newWindowLabel ?? "new sheet/window",
-			status: "never-looked",
-			detail: "appeared after act",
-		});
-	}
 	return { ...note, regions: uniqueRegions(note.regions) };
 }
 
@@ -180,7 +154,7 @@ export function noteRegionKeyForRef(outline: Outline, ref: string): string | und
 export function renderNote(note: WindowNote | undefined): string {
 	if (!note) return "";
 	const looked = note.lastLookId ? "looked just now" : "not looked";
-	const lines = [`note ${note.windowRef} ${JSON.stringify(note.title.slice(0, 512))} (pairing ${note.pairing}, ${looked})`];
+	const lines = [`note ${note.windowRef} ${JSON.stringify(note.title.slice(0, 512))} (${looked})`];
 	const visible = note.regions.slice(0, 64);
 	for (const region of visible) {
 		const detail = region.detail ? `   (${region.detail.slice(0, 256)})` : "";

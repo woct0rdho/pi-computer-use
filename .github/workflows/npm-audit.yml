@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   audit:
-    runs-on: macos-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7

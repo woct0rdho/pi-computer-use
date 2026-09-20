@@ -213,13 +213,13 @@ fn handle_request(request: &Request) -> Response {
 
     let result = match request.cmd.as_str() {
         "diagnostics" => Ok(diagnostics()),
-        "listRoots" | "listWindows" => handle_list_roots(&request.args),
-        "look" | "screenshot" => handle_look(&request.args),
+        "listRoots" => handle_list_roots(&request.args),
+        "look" => handle_look(&request.args),
         "focusWindow" => handle_focus_window(&request.args),
         "act" => handle_act(&request.args),
         "actBatch" => handle_act_batch(&request.args),
-        "uiaReadText" | "axReadText" => handle_read_text(&request.args),
-        "uiaWaitFor" | "axWaitFor" => handle_wait_for(&request.args),
+        "uiaReadText" => handle_read_text(&request.args),
+        "uiaWaitFor" => handle_wait_for(&request.args),
         "openBrowserLocation" => handle_open_browser_location(&request.args),
         other => Err(ProtocolError::new(
             format!("Unknown command '{other}'"),
@@ -241,8 +241,7 @@ fn diagnostics() -> Value {
         "pid": std::process::id(),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "accessibility": true,
-        "screenRecording": true
+        "accessibility": true
     })
 }
 

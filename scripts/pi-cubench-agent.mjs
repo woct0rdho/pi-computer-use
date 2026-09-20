@@ -51,7 +51,7 @@ async function selectRoot() {
 	const candidate = windows.find((item) => /cubench/i.test(item.windowTitle)) ?? windows.find((item) => item.isFocused) ?? windows[0];
 	if (!candidate) throw new Error("Could not find the headed Cubench Chromium window");
 	root = candidate.windowRef;
-	if (process.env.CUBENCH_PI_DEBUG === "1") console.error(JSON.stringify({ root, window: candidate.windowTitle, app: candidate.app, bundleId: candidate.bundleId }));
+	if (process.env.CUBENCH_PI_DEBUG === "1") console.error(JSON.stringify({ root, window: candidate.windowTitle, app: candidate.app }));
 }
 
 async function observe() {
@@ -99,8 +99,8 @@ async function rename(instruction) {
 	await act([{ action: "click", ref: target.ref }]);
 
 	const editorMatches = [
-		...(await search({ role: "AXTextField" })),
-		...(await search({ role: "AXTextArea" })),
+		...(await search({ role: "edit" })),
+		...(await search({ role: "document" })),
 	];
 	if (process.env.CUBENCH_PI_DEBUG === "1") console.error(JSON.stringify({ editorMatches: editorMatches.map((item) => ({ ref: item.ref, label: item.label, role: item.role, canSetValue: item.node?.canSetValue })) }));
 	const editor = editorMatches.find((item) => /new name/i.test(item.label) && item.node?.canSetValue)
@@ -108,7 +108,7 @@ async function rename(instruction) {
 		?? editorMatches.find((item) => !/address|search bar/i.test(item.label));
 	if (process.env.CUBENCH_PI_DEBUG === "1") console.error(JSON.stringify({ editor: editor && { ref: editor.ref, label: editor.label, role: editor.role } }));
 	if (editor) await act([{ action: "setText", ref: editor.ref, text: to }]);
-	else await act([{ action: "keypress", keys: ["cmd", "a"] }, { action: "typeText", text: to }]);
+	else await act([{ action: "keypress", keys: ["ctrl", "a"] }, { action: "typeText", text: to }]);
 	if (process.env.CUBENCH_PI_DEBUG === "1") console.error(JSON.stringify({ typedMatch: await exact(to) }));
 
 	const renameButton = (await exact("Rename")) ?? (await exact("OK"));

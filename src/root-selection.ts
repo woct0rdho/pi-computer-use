@@ -19,7 +19,7 @@ export function scoreWindow(window: RankedRoot): number {
 export function shouldPreferForegroundModalWindow(current: RankedRoot, candidate: RankedRoot): boolean {
 	if (candidate.windowId === current.windowId && candidate.windowRef === current.windowRef) return false;
 	if (!candidate.isOnscreen || candidate.isMinimized || !candidate.isModal) return false;
-	// AXDialog can describe a background main window, so modality alone is insufficient.
+	// A dialog can describe a background main window, so modality alone is insufficient.
 	const candidateIsInFront = candidate.isFocused || candidate.zOrder < current.zOrder;
 	return candidateIsInFront && scoreWindow(candidate) >= scoreWindow(current);
 }

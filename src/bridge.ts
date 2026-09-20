@@ -15,8 +15,7 @@ import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutp
 import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
-import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
-import type { PermissionStatus } from "./permissions.ts";
+import type { FramePoints, HelperActPerformed, HelperActResult, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import { ResourceScheduler } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
@@ -30,7 +29,7 @@ interface ActivationFlags {
 }
 
 type ExecutionVariant = "stealth" | "default";
-type ActionDelivery = "ax" | NativeInputDelivery;
+type ActionDelivery = "ax" | "hid";
 type DeliveryPolicy = "ax_only" | "background" | "default" | "foreground";
 type ActOutcome = "worked" | "didnt" | "unknown";
 
@@ -72,7 +71,6 @@ interface ComputerUseDetails {
 	tool: string;
 	target: {
 		app: string;
-		bundleId?: string;
 		pid: number;
 		windowTitle: string;
 		windowId: number;
@@ -126,7 +124,6 @@ interface TerminalDesktopActionDetails {
 	baseStateId: string;
 	target: {
 		app: string;
-		bundleId?: string;
 		pid: number;
 		windowTitle: string;
 		windowId: number;
@@ -146,7 +143,6 @@ interface ListWindowsDetails {
 	hasMore?: boolean;
 	windows: Array<{
 		app: string;
-		bundleId?: string;
 		pid: number;
 		kind: string;
 		windowTitle: string;
@@ -160,10 +156,8 @@ interface ListWindowsDetails {
 		isMain: boolean;
 		isFocused: boolean;
 		isModal: boolean;
-		sheetCount?: number;
 		role?: string;
 		subrole?: string;
-		pairing?: { confidence: "exact" | "high" | "low"; score: number };
 		zOrder: number;
 		browserUseAllowed: boolean;
 		score: number;
@@ -254,7 +248,6 @@ interface ResolvedTarget extends CurrentTarget {
 interface WindowRefRecord {
 	ref: string;
 	appName: string;
-	bundleId?: string;
 	pid: number;
 	windowTitle: string;
 	windowId?: number;
@@ -276,9 +269,7 @@ interface RuntimeState {
 	managedBrowser?: ChildProcess;
 	managedBrowserCdpPort?: string;
 	previousCdpPort?: string;
-	permissionStatus?: PermissionStatus;
 	helperDiagnostics?: PlatformDiagnostics;
-	lastPermissionCheckAt: number;
 }
 
 
@@ -298,7 +289,6 @@ const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
 const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
 
 const runtimeState: RuntimeState = {
-	lastPermissionCheckAt: 0,
 	windowRefs: new Map(),
 	windowRefByIdentity: new Map(),
 	browserRootByContext: new Map(),
@@ -350,9 +340,7 @@ export async function shutdownComputerUseSession(): Promise<void> {
 	runtimeState.browserRootByContext.clear();
 	runtimeState.browserContextByRoot.clear();
 	runtimeState.nextRootRefIndex = 1;
-	runtimeState.permissionStatus = undefined;
 	runtimeState.helperDiagnostics = undefined;
-	runtimeState.lastPermissionCheckAt = 0;
 	await currentPlatformBackend.shutdown?.();
 }
 
@@ -364,10 +352,6 @@ function currentDeliveryPolicy(): DeliveryPolicy {
 	if (isHeadlessMode()) return "background";
 	const value = (process.env.PI_COMPUTER_USE_DELIVERY_POLICY ?? process.env.PI_COMPUTER_USE_EVENT_DELIVERY ?? "default").toLowerCase();
 	return value === "background" || value === "pid" ? "background" : value === "foreground" || value === "hid" ? "foreground" : value === "ax_only" || value === "ax-only" ? "ax_only" : "default";
-}
-
-function nativeInputDelivery(policy = currentDeliveryPolicy()): NativeInputDelivery {
-	return policy === "foreground" ? "hid" : "pid";
 }
 
 function executionTrace(
@@ -528,7 +512,7 @@ function imageFallbackReason(
 	if (labeled * 3 < outline.nodes.length) {
 		return { reason: "unlabeled_ax_targets", message: "Most outline nodes are unlabeled, so the look image is attached for context." }
 	}
-	if (tool === "wait" && currentPlatformBackend.isBrowserApp(result.target.appName, result.target.bundleId)) {
+	if (tool === "wait" && currentPlatformBackend.isBrowserApp(result.target.appName)) {
 		return { reason: "browser_wait_verification", message: "Browser content may have changed visually during wait, so an image is attached for fallback." }
 	}
 	return undefined
@@ -553,14 +537,10 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
 	const ready = await currentPlatformBackend.ensureReady(
 		ctx,
 		{
-			permissionStatus: runtimeState.permissionStatus,
-			lastPermissionCheckAt: runtimeState.lastPermissionCheckAt,
 			helperDiagnostics: runtimeState.helperDiagnostics,
 		},
 		signal,
 	);
-	runtimeState.permissionStatus = ready.permissionStatus;
-	runtimeState.lastPermissionCheckAt = ready.lastPermissionCheckAt;
 	runtimeState.helperDiagnostics = ready.helperDiagnostics;
 }
 
@@ -578,26 +558,11 @@ async function listWindows(pid: number, signal?: AbortSignal): Promise<HelperWin
 
 function appMatchesWindowQuery(app: HelperApp, query: FindParams): boolean {
 	const appQuery = trimOrUndefined(query.app);
-	const bundleQuery = trimOrUndefined(query.bundleId);
 	const pidQuery = Number.isFinite(query.pid) ? Math.trunc(query.pid!) : undefined;
 
 	if (pidQuery !== undefined && app.pid !== pidQuery) return false;
-	if (bundleQuery && normalizeText(app.bundleId ?? "") !== normalizeText(bundleQuery)) return false;
 	if (appQuery && normalizeText(app.appName) !== normalizeText(appQuery)) return false;
 	return true;
-}
-
-function platformRootSheetCount(window: Pick<HelperWindow, "metadata">): number | undefined {
-	const value = window.metadata?.sheetCount;
-	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : undefined;
-}
-
-function platformRootPairing(window: Pick<HelperWindow, "metadata">): { confidence: "exact" | "high" | "low"; score: number } | undefined {
-	const value = window.metadata?.pairing;
-	if (!value || typeof value !== "object") return undefined;
-	const pairing = value as { confidence?: unknown; score?: unknown };
-	if (pairing.confidence !== "exact" && pairing.confidence !== "high" && pairing.confidence !== "low") return undefined;
-	return { confidence: pairing.confidence, score: typeof pairing.score === "number" && Number.isFinite(pairing.score) ? pairing.score : Number.NEGATIVE_INFINITY };
 }
 
 function formatWindowLine(window: ListWindowsDetails["windows"][number]): string {
@@ -606,7 +571,6 @@ function formatWindowLine(window: ListWindowsDetails["windows"][number]): string
 		window.isFocused ? "focused" : undefined,
 		window.isMain ? "main" : undefined,
 		window.isModal ? "modal" : undefined,
-		window.sheetCount ? `sheets=${window.sheetCount}` : undefined,
 		window.isOnscreen ? "onscreen" : undefined,
 		window.isMinimized ? "minimized" : undefined,
 		window.browserUseAllowed ? undefined : "browser_use_disabled",
@@ -615,16 +579,15 @@ function formatWindowLine(window: ListWindowsDetails["windows"][number]): string
 		.join(", ");
 	const frame = `${Math.round(window.framePoints.x)},${Math.round(window.framePoints.y)} ${Math.round(window.framePoints.w)}x${Math.round(window.framePoints.h)}`;
 	const id = window.windowId ? `windowId ${window.windowId}` : window.nativeWindowRef ? `nativeRootRef ${window.nativeWindowRef}` : "unstable root id";
-	const pairing = window.pairing ? `, pairing ${window.pairing.confidence}/${Math.round(window.pairing.score)}` : "";
-	return `- ${window.windowRef} ${window.kind} ${window.app} pid ${window.pid} — ${window.windowTitle || "(untitled)"} (z ${window.zOrder}, ${id}, frame ${frame}${pairing}${flags ? `, ${flags}` : ""})`;
+	return `- ${window.windowRef} ${window.kind} ${window.app} pid ${window.pid} — ${window.windowTitle || "(untitled)"} (z ${window.zOrder}, ${id}, frame ${frame}${flags ? `, ${flags}` : ""})`;
 }
 
 async function getFrontmost(signal?: AbortSignal): Promise<FrontmostResult> {
 	return await currentPlatformBackend.getFrontmost(signal);
 }
 
-function assertBrowserUseAllowed(target: { appName: string; bundleId?: string }): void {
-	if (!isBrowserUseEnabled() && currentPlatformBackend.isBrowserApp(target.appName, target.bundleId)) {
+function assertBrowserUseAllowed(target: { appName: string }): void {
+	if (!isBrowserUseEnabled() && currentPlatformBackend.isBrowserApp(target.appName)) {
 		throw new Error(
 			`Browser use is disabled by pi-computer-use config, so '${target.appName}' cannot be controlled. Enable browser_use in ~/.pi/agent/extensions/pi-computer-use.json or .pi/computer-use.json to allow browser windows.`,
 		);
@@ -673,7 +636,6 @@ function storeBrowserRootRef(contextId: string): string {
 function storeWindowRefForTarget(target: ResolvedTarget): string {
 	return storeWindowRef({
 		appName: target.appName,
-		bundleId: target.bundleId,
 		pid: target.pid,
 		windowTitle: target.windowTitle,
 		windowId: target.windowId > 0 ? target.windowId : undefined,
@@ -689,7 +651,6 @@ function storeWindowRefForTarget(target: ResolvedTarget): string {
 function storeWindowRefForAppWindow(app: HelperApp, window: HelperWindow): WindowRefRecord {
 	return storeWindowRef({
 		appName: app.appName,
-		bundleId: app.bundleId,
 		pid: app.pid,
 		windowTitle: window.title || "(untitled)",
 		windowId: window.windowId,
@@ -744,7 +705,6 @@ function chooseRankedWindowOrUndefined(windows: HelperWindow[]): HelperWindow | 
 function toResolvedTarget(app: HelperApp, window: HelperWindow): ResolvedTarget {
 	const baseTarget = {
 		appName: app.appName,
-		bundleId: app.bundleId,
 		pid: app.pid,
 		windowTitle: window.title || "(untitled)",
 		windowId: typeof window.windowId === "number" ? window.windowId : 0,
@@ -768,7 +728,6 @@ function setCurrentTarget(target: ResolvedTarget): void {
 	const windowRef = target.windowRef ?? storeWindowRefForTarget(target);
 	operationState().currentTarget = {
 		appName: target.appName,
-		bundleId: target.bundleId,
 		pid: target.pid,
 		windowTitle: target.windowTitle,
 		windowId: target.windowId,
@@ -796,7 +755,7 @@ async function resolveTargetByWindowSelector(selector: RootSelector, signal?: Ab
 
 	const fromRef = runtimeState.windowRefs.get(normalized);
 	if (fromRef) {
-		const app: HelperApp = { appName: fromRef.appName, bundleId: fromRef.bundleId, pid: fromRef.pid };
+		const app: HelperApp = { appName: fromRef.appName, pid: fromRef.pid };
 		const windows = await listWindows(fromRef.pid, signal);
 		const match =
 			(fromRef.windowId ? windows.find((window) => window.windowId === fromRef.windowId) : undefined) ??
@@ -837,7 +796,7 @@ async function resolveTargetByWindowSelector(selector: RootSelector, signal?: Ab
 	const fuzzy = exact.length > 0 ? exact : candidates.filter((candidate) => `${normalizeText(candidate.app)} ${normalizeText(candidate.windowTitle)}`.includes(query));
 	const match = fuzzy.sort((a, b) => Number(b.isFocused) - Number(a.isFocused) || a.zOrder - b.zOrder)[0];
 	if (!match) throw new Error(`Root query '${normalized}' did not match any current root. Call find_roots to inspect roots.`);
-	const app: HelperApp = { appName: match.app, bundleId: match.bundleId, pid: match.pid };
+	const app: HelperApp = { appName: match.app, pid: match.pid };
 	const roots = await listWindows(match.pid, signal);
 	const helperRoot = roots.find((root) => root.rootRef === match.nativeWindowRef || root.windowRef === match.nativeWindowRef || root.windowId === match.windowId) ?? roots[0];
 	const resolved = toResolvedTarget(app, helperRoot);
@@ -885,7 +844,6 @@ async function resolveCurrentTarget(signal?: AbortSignal): Promise<ResolvedTarge
 
 	const app: HelperApp = {
 		appName: current.appName,
-		bundleId: current.bundleId,
 		pid: current.pid,
 	};
 
@@ -899,7 +857,6 @@ async function resolveFrontmostTarget(signal?: AbortSignal): Promise<ResolvedTar
 	const apps = await listApps(signal);
 	const app = apps.find((candidate) => candidate.pid === frontmost.pid) ?? {
 		appName: frontmost.appName,
-		bundleId: frontmost.bundleId,
 		pid: frontmost.pid,
 	};
 
@@ -908,7 +865,7 @@ async function resolveFrontmostTarget(signal?: AbortSignal): Promise<ResolvedTar
 		throw new Error("No frontmost controllable root was found. Open an app window and call observe_ui again.");
 	}
 
-	if (currentPlatformBackend.isBrowserApp(app.appName, app.bundleId)) {
+	if (currentPlatformBackend.isBrowserApp(app.appName)) {
 		assertBrowserUseAllowed(app);
 	}
 
@@ -974,12 +931,10 @@ async function performLook(target: ResolvedTarget, options: { readText: "auto" |
 	}, { signal, timeoutMs: LOOK_TIMEOUT_MS });
 }
 
-function noteWindowForTarget(target: ResolvedTarget | CurrentTarget, look?: LookResponse) {
+function noteWindowForTarget(target: ResolvedTarget | CurrentTarget) {
 	return {
 		windowRef: target.windowRef,
 		title: target.windowTitle,
-		pairing: look?.window.metadata?.pairing && typeof look.window.metadata.pairing === "object" ? (look.window.metadata.pairing as { confidence?: "exact" | "high" | "low" }).confidence : undefined,
-		pairingScore: look?.window.metadata?.pairing && typeof look.window.metadata.pairing === "object" ? (look.window.metadata.pairing as { score?: number }).score : undefined,
 	};
 }
 
@@ -1000,7 +955,7 @@ async function captureCurrentTarget(signal?: AbortSignal, readText: "auto" | "al
 	state.currentStateTarget = { pid: target.pid, windowId: target.windowId, windowRef: target.windowRef };
 	state.currentLook = look;
 	state.currentOutline = outline;
-	state.currentNote = noteFromLook(state.currentNote, outline, noteWindowForTarget(target, look));
+	state.currentNote = noteFromLook(state.currentNote, outline, noteWindowForTarget(target));
 	state.resourceKey = desktopResourceKey(target);
 	state.epoch ??= resourceScheduler.epoch(state.resourceKey);
 
@@ -1033,7 +988,6 @@ async function buildToolResult(
 		tool,
 		target: {
 			app: result.target.appName,
-			bundleId: result.target.bundleId,
 			pid: result.target.pid,
 			windowTitle: result.target.windowTitle,
 			windowId: result.target.windowId,
@@ -1067,7 +1021,7 @@ async function buildToolResult(
 	// Console piggyback: when a CDP connection is active for this browser
 	// window, surface console output collected since the last tool result.
 	let consoleText = "";
-	if (currentPlatformBackend.isChromeFamilyApp(result.target.appName, result.target.bundleId)) {
+	if (currentPlatformBackend.isChromeFamilyApp(result.target.appName)) {
 		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints);
 		const entries = tab?.drainConsole() ?? [];
 		if (entries.length > 0) {
@@ -1126,7 +1080,6 @@ function modelRefForRootDelta(delta: NonNullable<HelperActResult["rootDelta"]>[n
 	const record: WindowRefRecord = {
 		ref,
 		appName: current?.pid === delta.pid ? current.appName : "Unknown App",
-		bundleId: current?.pid === delta.pid ? current.bundleId : undefined,
 		pid: delta.pid,
 		windowTitle: delta.title ?? "(untitled)",
 		nativeWindowRef: delta.ref,
@@ -1206,28 +1159,24 @@ async function helperAct(
 
 function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy()): PlatformActRequest {
 	const look = currentLookOrThrow();
-	const delivery = nativeInputDelivery(policy);
 	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy };
-	return (() => {
-		switch (action.action) {
-			case "press":
-			case "click": return { ...base, action: action.action, params: { ...action.params, delivery } };
-			case "setText": return { ...base, action: action.action, params: { text: action.params.text, delivery } };
-			case "typeText": return { ...base, action: action.action, params: { text: action.params.text, delivery } };
-			case "keypress": return { ...base, action: action.action, params: { keys: action.params.keys, delivery } };
-			case "scroll": return { ...base, action: action.action, params: { scrollX: action.params.scrollX, scrollY: action.params.scrollY, delivery } };
-			case "drag": return { ...base, action: action.action, params: { path: action.params.path, delivery } };
-			case "moveMouse": return { ...base, action: action.action, params: { delivery } };
-		}
-	})();
+	switch (action.action) {
+		case "press":
+		case "click": return { ...base, action: action.action, params: action.params };
+		case "setText": return { ...base, action: action.action, params: { text: action.params.text } };
+		case "typeText": return { ...base, action: action.action, params: { text: action.params.text } };
+		case "keypress": return { ...base, action: action.action, params: { keys: action.params.keys } };
+		case "scroll": return { ...base, action: action.action, params: { scrollX: action.params.scrollX, scrollY: action.params.scrollY } };
+		case "drag": return { ...base, action: action.action, params: { path: action.params.path } };
+		case "moveMouse": return { ...base, action: action.action, params: {} };
+	}
 }
 
 function rootDeltaLines(execution: ExecutionTrace): string[] {
 	return (execution.rootDelta ?? []).map((delta) => {
 		const quotedTitle = delta.title ? ` ${JSON.stringify(delta.title)}` : "";
 		const ref = delta.ref ? ` (${delta.ref.startsWith("@") ? delta.ref : `@${delta.ref}`})` : "";
-		const sheetCount = typeof delta.metadata?.sheetCount === "number" && Number.isFinite(delta.metadata.sheetCount) ? Math.max(0, Math.trunc(delta.metadata.sheetCount)) : undefined;
-		const flags = [delta.isModal ? "modal" : undefined, sheetCount ? `sheets=${sheetCount}` : undefined].filter(Boolean).join(", ");
+		const flags = delta.isModal ? "modal" : undefined;
 		const suffix = `${quotedTitle}${flags ? ` (${flags})` : ""}${ref}`;
 		if (delta.change === "appeared") return `New root: ${delta.kind}${suffix}`;
 		if (delta.change === "closed") return `Root closed: ${delta.kind}${suffix}`;
@@ -1239,7 +1188,6 @@ function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<
 	const storedRef = storeWindowRefForAppWindow(app, window);
 	return {
 		app: app.appName,
-		bundleId: app.bundleId,
 		pid: app.pid,
 		kind: window.kind,
 		windowTitle: window.title || "(untitled)",
@@ -1253,12 +1201,10 @@ function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<
 		isMain: window.isMain,
 		isFocused: window.isFocused,
 		isModal: window.isModal,
-		sheetCount: platformRootSheetCount(window),
 		role: window.role,
 		subrole: window.subrole,
-		pairing: platformRootPairing(window),
 		zOrder: window.zOrder,
-		browserUseAllowed: config.browser_use || !currentPlatformBackend.isBrowserApp(app.appName, app.bundleId),
+		browserUseAllowed: config.browser_use || !currentPlatformBackend.isBrowserApp(app.appName),
 		score: scoreWindow(window),
 	};
 }
@@ -1277,13 +1223,13 @@ function collectBroadWindowDetails(roots: HelperWindow[], config: ReturnType<typ
 	const windows: ListWindowsDetails["windows"] = [];
 	for (const window of roots) {
 		if (!window.pid) continue;
-		windows.push(windowDetails({ appName: window.appName ?? "Unknown App", bundleId: window.bundleId, pid: window.pid }, window, config));
+		windows.push(windowDetails({ appName: window.appName ?? "Unknown App", pid: window.pid }, window, config));
 	}
 	return sortWindowDetails(windows);
 }
 
 async function windowDetailsForFind(query: FindParams, config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
-	if (!query.app && !query.bundleId && !Number.isFinite(query.pid)) {
+	if (!query.app && !Number.isFinite(query.pid)) {
 		return collectBroadWindowDetails(await currentPlatformBackend.listRoots({}, signal), config);
 	}
 	const apps = (await listApps(signal)).filter((app) => appMatchesWindowQuery(app, query));
@@ -1295,13 +1241,12 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
 	const query: FindParams = {
 		text: trimOrUndefined(rawParams.text),
 		app: trimOrUndefined(rawParams.app),
-		bundleId: trimOrUndefined(rawParams.bundleId),
 		pid: Number.isFinite(rawParams.pid) ? Math.trunc(rawParams.pid!) : undefined,
 		kind: rawParams.kind,
 	};
 	const config = getComputerUseConfig();
 	const desktopForest = await windowDetailsForFind(query, config, signal);
-	const includeBrowserPages = !query.pid && !query.bundleId && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
+	const includeBrowserPages = !query.pid && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
 	const browserForest: ListWindowsDetails["windows"] = !includeBrowserPages ? [] : (await listCdpPageContexts().catch(() => []))
 		.map((page) => ({
 			app: "Browser",
@@ -1332,7 +1277,7 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
 	const lines = windows.map(formatWindowLine);
 	const text = lines.length
 		? `Found ${totalMatches} matching root${totalMatches === 1 ? "" : "s"}; returned ${windows.length}${totalMatches > windows.length ? ". Refine the filters for additional roots" : ""}. Use @r refs with observe_ui({ root: "@rN" }).\n${lines.join("\n")}`
-		: query.text || query.app || query.bundleId || query.pid || query.kind
+		: query.text || query.app || query.pid || query.kind
 			? "No roots matched the supplied filters."
 			: "No roots are currently visible to pi-computer-use.";
 	return { content: [{ type: "text", text }], details };
@@ -1908,7 +1853,6 @@ async function terminalDesktopActionResult(
 		baseStateId,
 		target: {
 			app: target.appName,
-			bundleId: target.bundleId,
 			pid: target.pid,
 			windowTitle: target.windowTitle,
 			windowId: target.windowId,
@@ -1978,7 +1922,7 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 			const capture = await captureCurrentTarget(signal, "auto", AUTO_IMAGE_MAX_DIMENSION, target);
 			execution.outcome = outcomeAfterObservedValues(execution.outcome ?? "unknown", executedActions, (ref) => nodeByRef(capture.outline, ref)?.value);
 			for (const action of executedActions) {
-				state.currentNote = noteAfterAct(state.currentNote ?? noteBefore, action.ref, capture.outline, { window: noteWindowForTarget(capture.target, capture.look), rootDelta: execution.rootDelta });
+				state.currentNote = noteAfterAct(state.currentNote ?? noteBefore, action.ref, capture.outline, { window: noteWindowForTarget(capture.target), rootDelta: execution.rootDelta });
 			}
 			return await buildToolResult("act_ui", `Executed ${executedActions.length} checked UI action${executedActions.length === 1 ? "" : "s"} in ${target.appName} — ${target.windowTitle}. Returned state ${capture.capture.stateId}.`, capture, execution, signal, state.currentImageMode, baseView);
 		} catch (error) {
@@ -2076,44 +2020,17 @@ function managedBrowserExecutableCandidates(browser: "helium" | "chrome"): strin
 	const override = trimOrUndefined(process.env[overrideName]);
 	if (override) return [path.resolve(override)];
 
-	const platformCandidates = process.platform === "darwin"
-		? browser === "helium"
-			? [
-				"/Applications/Helium.app/Contents/MacOS/Helium",
-				path.join(os.homedir(), "Applications", "Helium.app", "Contents", "MacOS", "Helium"),
-			]
-			: [
-				"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-				path.join(os.homedir(), "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
-			]
-		: process.platform === "win32"
-			? browser === "helium"
-				? [
-					process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Helium", "Application", "helium.exe"),
-					process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Helium", "Application", "helium.exe"),
-				]
-				: [
-					process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe"),
-					process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe"),
-					process.env["PROGRAMFILES(X86)"] && path.join(process.env["PROGRAMFILES(X86)"], "Google", "Chrome", "Application", "chrome.exe"),
-				]
-			: browser === "helium"
-				? [
-					"/usr/bin/helium",
-					"/usr/bin/helium-browser",
-					"/opt/helium/chrome",
-					path.join(os.homedir(), ".local", "helium", "chrome"),
-				]
-				: [
-					"/usr/bin/google-chrome",
-					"/usr/bin/google-chrome-stable",
-					"/usr/bin/chromium",
-					"/usr/bin/chromium-browser",
-					"/snap/bin/chromium",
-				];
-	const pathNames = browser === "helium"
-		? process.platform === "win32" ? ["helium.exe"] : ["helium", "helium-browser"]
-		: process.platform === "win32" ? ["chrome.exe"] : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"];
+	const platformCandidates = browser === "helium"
+		? [
+			process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Helium", "Application", "helium.exe"),
+			process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Helium", "Application", "helium.exe"),
+		]
+		: [
+			process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe"),
+			process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe"),
+			process.env["PROGRAMFILES(X86)"] && path.join(process.env["PROGRAMFILES(X86)"], "Google", "Chrome", "Application", "chrome.exe"),
+		];
+	const pathNames = browser === "helium" ? ["helium.exe"] : ["chrome.exe"];
 	const pathCandidates = (process.env.PATH ?? "")
 		.split(path.delimiter)
 		.filter(Boolean)
@@ -2317,7 +2234,6 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 				const record: WindowRefRecord = {
 					ref: window.windowRef,
 					appName: typeof window.app === "string" ? window.app : "Unknown App",
-					bundleId: typeof window.bundleId === "string" ? window.bundleId : undefined,
 					pid: Math.trunc(window.pid),
 					windowTitle: typeof window.windowTitle === "string" ? window.windowTitle : "(untitled)",
 					windowId: Number.isFinite(window.windowId) ? Math.trunc(window.windowId) : undefined,
@@ -2353,7 +2269,6 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 
 		const target: CurrentTarget = {
 			appName: app,
-			bundleId: details.target.bundleId,
 			pid: Math.trunc(details.target.pid),
 			windowTitle: details.target.windowTitle ?? "(untitled)",
 			windowId: Math.trunc(details.target.windowId),

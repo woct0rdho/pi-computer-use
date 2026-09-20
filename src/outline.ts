@@ -274,7 +274,7 @@ export function outlineNodeLabel(node: OutlineNode): string {
 
 function displayName(node: OutlineNode): string {
 	const label = outlineNodeLabel(node);
-	return `${node.role || "AXUnknown"}${node.subrole ? `/${node.subrole}` : ""}${label ? ` ${JSON.stringify(label)}` : ""}`;
+	return `${node.role || "unknown"}${node.subrole ? `/${node.subrole}` : ""}${label ? ` ${JSON.stringify(label)}` : ""}`;
 }
 
 export function outlineNodePath(node: OutlineNode): string {
@@ -305,8 +305,8 @@ function countDescendants(node: OutlineNode): { total: number; roles: Map<string
 }
 
 function roleName(role: string): string {
-	const stripped = role.replace(/^AX/, "").toLowerCase();
-	return stripped || "nodes";
+	const normalized = role.toLowerCase();
+	return normalized || "nodes";
 }
 
 function plural(count: number, singular: string): string {
@@ -353,7 +353,7 @@ function pathRefs(node: OutlineNode): string[] {
 function defaultUnfoldRefs(outline: Outline): Set<string> {
 	const refs = new Set<string>([outline.root.ref]);
 	for (const node of outline.nodes) {
-		if (node.truncated || node.parent?.role === "AXSheet" || node.role === "AXSheet" || node.role === "AXDialog") {
+		if (node.truncated) {
 			for (const ref of pathRefs(node)) refs.add(ref);
 		}
 		if (node.focused) {

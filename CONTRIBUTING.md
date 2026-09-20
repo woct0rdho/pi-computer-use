@@ -25,13 +25,11 @@ If you change native code, rebuild the helper:
 npm run build:native
 ```
 
-macOS permissions should normally be granted to:
+The helper is installed per user to:
 
 ```text
-~/Applications/pi-computer-use.app
+%USERPROFILE%\.pi\agent\helpers\pi-computer-use\windows-bridge.exe
 ```
-
-Existing writable system-wide installs remain at `/Applications/pi-computer-use.app`.
 
 ## Validation
 
@@ -39,7 +37,7 @@ Use the smallest check that proves the change:
 
 - Documentation changes: proofread changed files and check touched links or commands.
 - TypeScript or schema changes: run `npm test`.
-- Native helper changes: run `npm run build:native` and `npm test`.
+- Native helper changes: run `cargo test --locked` in `native/windows/bridge-rs`, then `npm run build:native` and `npm test`.
 - Behavior changes: run `cubench` against the registered extension tools.
 
 The in-repo legacy benchmark harness was removed because it targeted old direct action tools. Use `cubench` for behavioral validation.
@@ -56,7 +54,7 @@ Examples:
 
 ```text
 feat(scene): add label association
-fix(config): document strict AX env vars
+fix(config): document strict accessibility env vars
 refactor(extension): simplify public tool surface
 ```
 
@@ -72,7 +70,7 @@ A PR should include:
 
 - the linked issue
 - a short description of the user-facing change
-- permission, browser, or strict AX impact if relevant
+- browser or strict accessibility impact if relevant
 - validation results
 
 Keep unrelated formatting and generated output out of the PR.

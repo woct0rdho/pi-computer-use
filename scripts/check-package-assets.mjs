@@ -6,17 +6,14 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const expected = [
-	"package/prebuilt/macos/universal/pi-computer-use.app/Contents/MacOS/bridge",
 	"package/prebuilt/windows/windows-bridge.exe",
-	"package/prebuilt/linux/x64/linux-bridge",
-	"package/prebuilt/linux/arm64/linux-bridge",
 ];
 
 const suppliedTarball = process.argv[2];
 const tarball = suppliedTarball ?? await createTarball();
 try {
 	const { stdout } = await execFileAsync("tar", ["-tzf", tarball], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-	const files = new Set(stdout.split("\n").filter(Boolean));
+	const files = new Set(stdout.split("\n").map((line) => line.trim()).filter(Boolean));
 	for (const file of expected) assert.ok(files.has(file), `npm package is missing ${file}`);
 } finally {
 	if (!suppliedTarball) await rm(tarball, { force: true });

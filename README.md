@@ -4,9 +4,7 @@
   <img src="./assets/logo/logo3.png" width="50%" alt="pi-computer-use">
 </p>
 
-`pi-computer-use` lets AI agents use desktop apps on macOS, Windows, and Linux.
-
-The macOS helper requires macOS 14 or newer.
+`pi-computer-use` lets AI agents use desktop apps on Windows.
 
 An agent can look at an app window, understand the buttons and text inside it, and perform actions like clicking, typing, scrolling, and waiting for something to change. This is useful when the agent needs to work with a normal desktop app instead of an API, a terminal command, or a file.
 
@@ -31,32 +29,25 @@ In short: it gives an agent a controlled way to operate desktop software.
 
 Computer use is most helpful when the only available interface is the app on screen.
 
+## Requirements
+
+- Windows 10 or newer
+- An interactive, unlocked desktop session
+- Node.js 20.6 or newer
+
+Windows support uses the platform accessibility APIs (UI Automation) and does not require any separate permission prompt.
+
 ## Install
 
 ```bash
 pi install npm:@injaneity/pi-computer-use
 ```
 
-Start Pi and complete the platform setup flow.
-
-On macOS, the helper is installed per user by default. Grant permissions to:
+Start Pi and complete the helper setup flow. The Windows helper is installed per user to:
 
 ```text
-~/Applications/pi-computer-use.app
+%USERPROFILE%\.pi\agent\helpers\pi-computer-use\windows-bridge.exe
 ```
-
-Existing writable system-wide installs remain at `/Applications/pi-computer-use.app`.
-
-Required macOS permissions:
-
-- Accessibility
-- Screen Recording, shown as Screen and System Audio Recording on newer macOS versions
-
-The macOS setup flow registers the helper first, so it should already appear in both Settings panes. Enable the toggles and choose Recheck.
-
-On Windows, use an interactive desktop session. Windows support uses the platform accessibility APIs and does not use the macOS helper app or TCC permission flow.
-
-On Linux, run Pi inside the target user's graphical session with a working AT-SPI2 accessibility bus. AT-SPI semantic operations remain background-first. X11 additionally supports EWMH window metadata/focus, window capture, and policy-gated XTEST physical input; strict headless/background policies never use focus or XTEST. Native Wayland remains semantic-only; diagnostics reads portal capability properties without creating a session, and interactive portal use is disabled. See [Linux support](./docs/linux.md) for the exact capability matrix and portal status.
 
 Use `/computer-use` inside Pi to show the active configuration and where it came from.
 
@@ -80,7 +71,6 @@ See [docs/usage.md](./docs/usage.md) for the full tool reference.
 - [Configuration](./docs/configuration.md)
 - [Development](./docs/development.md)
 - [Troubleshooting](./docs/troubleshooting.md)
-- [Linux support](./docs/linux.md)
 - [Contributing](./CONTRIBUTING.md)
 
 ## Development status

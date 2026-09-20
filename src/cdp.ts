@@ -2,9 +2,9 @@
 //
 // Opt-in: set PI_COMPUTER_USE_CDP_PORT to the --remote-debugging-port of a
 // running Chromium-family browser. When active, navigate_browser uses
-// Page.navigate (event-driven, no AppleScript) and recent console messages
-// and uncaught exceptions are attached to tool results. Everything else
-// keeps the AX/CGEvent path, so with the env var unset this module is inert.
+// Page.navigate (event-driven) and recent console messages and uncaught
+// exceptions are attached to tool results. Everything else keeps the native
+// desktop path, so with the env var unset this module is inert.
 
 import { randomUUID } from "node:crypto";
 import { parseLookResponse, serializeOutline, type SerializedOutline } from "./outline.ts";
@@ -52,7 +52,7 @@ export interface CdpEvaluationResult {
 	value: unknown;
 }
 
-/** Window frame in screen points, as reported by the AX side. */
+/** Window frame in screen points, as reported by the native helper. */
 export interface WindowFrame {
 	x: number;
 	y: number;
@@ -632,7 +632,7 @@ async function pickTab(pages: CdpPageTarget[], windowTitle: string, frame?: Wind
 }
 
 /**
- * Whether the tab's browser window frame matches the AX window frame.
+ * Whether the tab's browser window frame matches the native window frame.
  * `trustOnUnknown` controls the answer when bounds cannot be read: cache
  * verification trusts the existing connection, candidate selection does not.
  */
@@ -647,7 +647,7 @@ async function tabMatchesFrame(tab: CdpTab, frame: WindowFrame | undefined, trus
 	);
 }
 
-// The AX window title for a Chrome-family browser is usually the active tab
+// The window title for a Chrome-family browser is usually the active tab
 // title, sometimes suffixed (" - Google Chrome", profile name), so compare
 // by prefix in both directions.
 function titlesMatch(tabTitle: string, windowTitle: string): boolean {

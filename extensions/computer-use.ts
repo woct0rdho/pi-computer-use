@@ -53,9 +53,8 @@ const findTool = defineTool({
 	parameters: Type.Object({
 		text: Type.Optional(Type.String({ description: "Ranked app or title text", maxLength: 256 })),
 		app: Type.Optional(Type.String({ description: "Exact normalized app name", maxLength: 256 })),
-		bundleId: Type.Optional(Type.String({ description: "Exact bundle id" })),
 		pid: Type.Optional(Type.Number({ description: "Exact process id" })),
-		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("sheet"), Type.Literal("popover"), Type.Literal("dialog"), Type.Literal("browser_page")], { description: "Exact root kind" })),
+		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("popover"), Type.Literal("dialog"), Type.Literal("browser_page")], { description: "Exact root kind" })),
 	}),
 	execute: executeFind,
 });
@@ -171,7 +170,6 @@ function formatConfigStatus(): string {
 		`browser_use: ${loaded.config.browser_use ? "enabled" : "disabled"}`,
 		`managed_browser: ${loaded.config.managed_browser}`,
 		`headless: ${loaded.config.headless ? "enabled" : "disabled"}`,
-		`cursor_overlay: ${loaded.config.cursor_overlay ? "enabled" : "disabled"}`,
 		"",
 		"Sources:",
 		...loaded.sources.map((source) => `- ${source.path}: ${source.error ? `error: ${source.error}` : source.exists ? "loaded" : "not found"}`),

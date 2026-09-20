@@ -9,10 +9,9 @@ export interface ObserveTargetParams {
 export interface FindParams {
 	text?: string;
 	app?: string;
-	bundleId?: string;
 	pid?: number;
 	/** Filters on the platform's best-effort presentation hint; only window vs transient is guaranteed. */
-	kind?: "window" | "menu" | "sheet" | "popover" | "dialog" | "browser_page";
+	kind?: "window" | "menu" | "popover" | "dialog" | "browser_page";
 }
 
 export interface StateTargetParams {
