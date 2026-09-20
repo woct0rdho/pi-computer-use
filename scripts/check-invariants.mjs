@@ -33,14 +33,17 @@ function assert(condition, message) {
 	if (!condition) throw new Error(message);
 }
 
-check("windows-only platform surface", () => {
-	for (const removed of ["native/macos", "native/linux", "src/platform/macos", "src/platform/linux", "prebuilt/macos", "prebuilt/linux"]) {
+check("windows-only native UI surface", () => {
+	for (const removed of ["native/macos", "native/linux", "src/platform/macos", "src/platform/linux", "prebuilt/macos", "prebuilt/linux", "src/cdp.ts", "src/platform/macos/browser.ts"]) {
 		assert(!fs.existsSync(path.join(root, removed)), `${removed} still exists`);
 	}
 	const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 	assert(!JSON.stringify(pkg.files).includes("macos"), "package files still include macOS assets");
 	assert(!JSON.stringify(pkg.files).includes("linux"), "package files still include Linux assets");
 	assert(!JSON.stringify(pkg.scripts).toLowerCase().includes("linux"), "package scripts still reference Linux");
+	for (const [file, text] of srcFiles) {
+		assert(!/launch_browser|navigate_browser|evaluate_browser|CdpPageSnapshot|browser_page/.test(text), `browser-control surface appears in src/${file}`);
+	}
 });
 
 check("INV-1 static helper observation commands removed", () => {
@@ -179,7 +182,7 @@ check("INV-10 resource-keyed scheduling", () => {
 check("INV-11 unified agent contract", () => {
 	const extension = fs.readFileSync(path.join(root, "extensions/computer-use.ts"), "utf8");
 	const tools = [...extension.matchAll(/\bname:\s*"([^"]+)"/g)].map((match) => match[1]);
-	const expected = ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "launch_browser", "navigate_browser", "evaluate_browser"];
+	const expected = ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for"];
 	assert(JSON.stringify(tools) === JSON.stringify(expected), `unexpected public tool surface: ${tools.join(", ")}`);
 	assert(!extension.includes('executionMode: "sequential"'), "computer-use tools remain globally sequential");
 	assert(extension.includes("Required state id owning every @e ref"), "state-scoped ref contract is missing");
@@ -230,7 +233,7 @@ check("INV-18 consolidated actions and diff-first resulting views", () => {
 check("INV-20 bounded broad root discovery", () => {
 	assert(ts.includes("async function windowDetailsForFind"), "find_roots lacks an explicit root-acquisition boundary");
 	assert(/if \(!query\.app && !Number\.isFinite\(query\.pid\)\)[\s\S]{0,160}listRoots\(\{\}, signal\)/.test(ts), "broad find_roots does not use one platform listRoots call");
-	assert(ts.includes("return await collectWindowDetails(apps, config, signal)"), "filtered find_roots does not retain per-app discovery");
+	assert(ts.includes("return await collectWindowDetails(apps, signal)"), "filtered find_roots does not retain per-app discovery");
 	assert(windowsMain.includes("fn handle_list_roots"), "Windows helper lacks root discovery");
 });
 

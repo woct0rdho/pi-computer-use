@@ -38,9 +38,7 @@ Use the smallest check that proves the change:
 - Documentation changes: proofread changed files and check touched links or commands.
 - TypeScript or schema changes: run `npm test`.
 - Native helper changes: run `cargo test --locked` in `native/windows/bridge-rs`, then `npm run build:native` and `npm test`.
-- Behavior changes: run `cubench` against the registered extension tools.
-
-The in-repo legacy benchmark harness was removed because it targeted old direct action tools. Use `cubench` for behavioral validation.
+- Behavior changes: exercise the registered extension tools against a real Windows app in an interactive desktop session.
 
 ## Commit messages
 
@@ -70,7 +68,7 @@ A PR should include:
 
 - the linked issue
 - a short description of the user-facing change
-- browser or strict accessibility impact if relevant
+- accessibility or focus impact if relevant
 - validation results
 
 Keep unrelated formatting and generated output out of the PR.

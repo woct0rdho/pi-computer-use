@@ -89,18 +89,6 @@ pub fn response_with_delta(mut response: Value, source: &str, delta: Vec<Value>)
     response
 }
 
-pub fn open_browser_location(url: &str) -> Result<(), ProtocolError> {
-    #[cfg(not(windows))]
-    {
-        let _ = url;
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        native::open_browser_location(url)
-    }
-}
-
 pub fn act(args: &Value) -> Result<Value, ProtocolError> {
     let request = parse_act_request(args)?;
     let grounding = args
@@ -142,12 +130,6 @@ mod native {
     use super::*;
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
     use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
-
-    pub fn open_browser_location(url: &str) -> Result<(), ProtocolError> {
-        hotkey(&[VK_CONTROL], VK_L)?;
-        send_text(url)?;
-        send(&[key(VK_RETURN, false), key(VK_RETURN, true)])
-    }
 
     pub fn act(
         request: &ParsedActRequest,

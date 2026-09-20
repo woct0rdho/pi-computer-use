@@ -17,7 +17,6 @@ scripts/build-native.mjs         Windows helper build script
 scripts/setup-helper.mjs         Windows helper install script
 scripts/check-invariants.mjs     Architecture invariant checks
 scripts/check-runtime-concurrency.mjs Scheduler/state concurrency checks
-scripts/pi-cubench-agent.mjs     Cubench gateway adapter using registered Pi tools
 ```
 
 The public tool surface lives in `extensions/computer-use.ts`. Keep it small. Internal complexity belongs in `src/bridge.ts`, `src/outline.ts`, `src/note.ts`, and the native helper.
@@ -53,7 +52,6 @@ The runtime is state-scoped and outline-first:
 - `act_ui` is the only public desktop action entrypoint.
 - UI observations are immutable records; request-local hydration replaces global current state.
 - Cached queries bypass scheduling; live work is ordered per physical resource.
-- Browser pages and desktop surfaces share the `@r` root forest and `@e` outline contract.
 - The helper owns grounding, preflight, execution, and verification.
 - Removed direct tools such as `screenshot`, `click`, `set_text`, and `computer_actions` should not reappear as public extension tools.
 
@@ -62,22 +60,6 @@ Run invariants after architecture changes:
 ```bash
 npm run test:invariants
 ```
-
-## Cubench
-
-`scripts/pi-cubench-agent.mjs` drives a headed Cubench Chromium window through the same registered Pi tools used by the extension. Cubench must launch its web driver headed:
-
-```powershell
-$env:CUBENCH_HEADLESS = "0"
-node ../cubench/bin/cubench.mjs suite run `
-  --suite ../cubench/suites/core.json `
-  --agent "node --experimental-transform-types $PWD/scripts/pi-cubench-agent.mjs" `
-  --driver web `
-  --trials 3 `
-  --label picu
-```
-
-The adapter uses Cubench only for the instruction and final oracle; UI observation and action go through `pi-computer-use`. Gateway action/observation counters therefore do not trigger Cubench interference hooks, so stale/reorder cases need a native-driver integration before their interference timing can be treated as benchmark evidence.
 
 ## Native Windows helper
 

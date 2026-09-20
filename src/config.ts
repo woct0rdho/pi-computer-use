@@ -3,9 +3,7 @@ import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface ComputerUseConfig {
-	browser_use: boolean;
 	headless: boolean;
-	managed_browser: "helium" | "chrome";
 }
 
 export interface ComputerUseConfigSource {
@@ -22,9 +20,7 @@ export interface LoadedComputerUseConfig {
 }
 
 const DEFAULT_CONFIG: ComputerUseConfig = {
-	browser_use: true,
 	headless: false,
-	managed_browser: "chrome",
 };
 
 let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
@@ -44,12 +40,8 @@ function normalizePartial(raw: unknown): Partial<ComputerUseConfig> {
 	if (!raw || typeof raw !== "object") return {};
 	const source = (raw as any).computer_use && typeof (raw as any).computer_use === "object" ? (raw as any).computer_use : raw;
 	const out: Partial<ComputerUseConfig> = {};
-	const browserUse = parseBoolean((source as any).browser_use);
 	const headless = parseBoolean((source as any).headless);
-	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
-	const managedBrowser = (source as any).managed_browser;
-	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;
 }
 
@@ -65,12 +57,8 @@ function readConfigFile(filePath: string): ComputerUseConfigSource {
 
 function readEnv(): Partial<ComputerUseConfig> {
 	const out: Partial<ComputerUseConfig> = {};
-	const browserUse = parseBoolean(process.env.PI_COMPUTER_USE_BROWSER_USE);
 	const headless = parseBoolean(process.env.PI_COMPUTER_USE_HEADLESS);
-	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
-	const managedBrowser = process.env.PI_COMPUTER_USE_MANAGED_BROWSER;
-	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;
 }
 
@@ -100,8 +88,4 @@ export function getLoadedComputerUseConfig(): LoadedComputerUseConfig {
 
 export function isHeadlessMode(): boolean {
 	return activeConfig.headless;
-}
-
-export function isBrowserUseEnabled(): boolean {
-	return activeConfig.browser_use;
 }

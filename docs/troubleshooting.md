@@ -31,24 +31,6 @@ If the helper was built but setup reports a file-lock error, an existing helper 
 
 Desktop computer use requires an interactive user session. Run Pi in an unlocked interactive desktop session rather than a service, headless, or disconnected session.
 
-## Browser windows are refused
-
-Check the active config:
-
-```text
-/computer-use
-```
-
-If `browser_use` is disabled, enable it in either config file:
-
-```json
-{
-  "browser_use": true
-}
-```
-
-If `launch_browser` cannot find the selected browser, set `PI_COMPUTER_USE_CHROME_EXECUTABLE` or `PI_COMPUTER_USE_HELIUM_EXECUTABLE` to an executable absolute path. A manual Chromium CDP launch needs both `--remote-debugging-port` and a non-default `--user-data-dir`.
-
 ## Strict accessibility mode blocks an action
 
 Headless mode blocks raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover.

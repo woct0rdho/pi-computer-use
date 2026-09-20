@@ -1,12 +1,12 @@
 # Architecture
 
-`pi-computer-use` exposes one state-scoped interface for desktop and browser UI:
+`pi-computer-use` exposes one state-scoped interface for desktop UI:
 
 ```text
 find roots → observe one root → search/expand/inspect its state → act from that state
 ```
 
-The agent still sees a multi-root forest. `find_roots` returns stable root refs (`@rN`) for desktop windows, transient surfaces, and CDP pages. Observing one root produces an immutable element tree whose refs (`@eN`) belong only to that returned `stateId`. Progressive disclosure is unchanged: the first outline is folded, while `search_ui`, `expand_ui`, and `inspect_ui` query the full stored tree.
+The agent still sees a multi-root forest. `find_roots` returns stable root refs (`@rN`) for desktop windows and transient surfaces. Observing one root produces an immutable element tree whose refs (`@eN`) belong only to that returned `stateId`. Progressive disclosure is unchanged: the first outline is folded, while `search_ui`, `expand_ui`, and `inspect_ui` query the full stored tree.
 
 ## Runtime model
 
@@ -35,37 +35,34 @@ flowchart TB
     Q -->|"observe / act / live read"| R["Resource scheduler"]
     R --> D1["desktop-pid:123 lane"]
     R --> D2["desktop-pid:456 lane"]
-    R --> B1["cdp:page-A lane"]
     D1 --> P["Platform-neutral backend"]
     D2 --> P
-    B1 --> Cdp["Target-keyed CDP connections"]
     P --> W["Windows UIA/input helper"]
     W --> O["OS UI resources"]
-    Cdp --> O
 ```
 
 There is no session-wide current UI. Every call hydrates request-local state from `stateId`; unrelated calls cannot overwrite one another. Stored observations are immutable and bounded, so old refs either resolve to their exact observation or fail clearly after eviction.
 
-The scheduler serializes live operations only when they address the same physical resource. Different desktop processes and different CDP targets can run concurrently. Cached outline queries bypass it entirely. Every resource has a monotonically increasing epoch. A mutating call must present the epoch captured by its state; if another write won the race, the stale call is rejected before dispatch.
+The scheduler serializes live operations only when they address the same physical resource. Different desktop processes can run concurrently. Cached outline queries bypass it entirely. Every resource has a monotonically increasing epoch. A mutating call must present the epoch captured by its state; if another write won the race, the stale call is rejected before dispatch.
 
-Desktop scheduling is conservatively keyed by process rather than window because accessibility focus, menus, and physical input can cross window boundaries inside an app. CDP scheduling is keyed by page target. Global physical input remains mutex-protected in the native helper; semantic UIA work can overlap where the platform permits it.
+Desktop scheduling is conservatively keyed by process rather than window because accessibility focus, menus, and physical input can cross window boundaries inside an app. Global physical input remains mutex-protected in the native helper; semantic UIA work can overlap where the platform permits it.
 
 ## Observation and progressive disclosure
 
-`observe_ui` asks the selected backend for one look. A desktop look combines root identity, accessibility structure, optional image evidence, OCR boxes when required, and capture metadata. A browser look converts the CDP accessibility tree into the same serialized outline shape.
+`observe_ui` asks the selected backend for one look. A desktop look combines root identity, accessibility structure, optional image evidence, OCR boxes when required, and capture metadata.
 
 The bridge stores the complete observation and returns a folded rendering. The state owns its refs:
 
 ```text
-@r3 browser page
+@r1 desktop window
   state A (epoch 4)
-    @e1 document
-    @e7 button
+    @e1 application
+    @e12 text field
 
 @r8 desktop window
   state B (epoch 2)
     @e1 application
-    @e12 text field
+    @e7 button
 ```
 
 `search_ui` and ordinary inspection are pure cached queries. A live escalation such as OCR or a refreshed truncated region is epoch-checked and resource-scheduled. It cannot silently graft data across a concurrent mutation.
@@ -114,10 +111,6 @@ Complete observations remain immutable and bounded internally. The initial obser
 
 Diff rendering falls back to a full folded view when the root identity changes, too few successor nodes can be matched confidently, or the change budget would make a patch less useful than the full view. Cached queries always operate on the complete stored state, never on a partially applied model-side tree.
 
-## Browser support
-
-Browser pages are roots, not a second agent-facing context hierarchy. `launch_browser` returns browser-page `@r` refs; `observe_ui` returns their normal outline and `stateId`. `read_text`, `wait_for`, `act_ui`, `navigate_browser`, and `evaluate_browser` derive the CDP target from that state. Internal CDP target identifiers never need to be copied between public tools.
-
 ## Native transports
 
 The Windows line protocol accepts multiple in-flight requests and correlates responses by request id. The helper uses a fixed worker pool and initializes UIA per worker thread, keeps eight immutable native look records, and serializes global physical input. Target focus, bounded occlusion preflight, and HID delivery share that same critical section; another worker cannot change the foreground between validation and delivery. UIA-only batches do not acquire the global physical-input lock, while any batch that may fall back to pointer or keyboard delivery holds it for the complete transaction.
@@ -132,7 +125,7 @@ Changes to the native backend should therefore include three layers of evidence:
 
 1. shared contract tests for request and response semantics;
 2. native compilation and deterministic native unit tests;
-3. the same black-box Cubench properties on an interactive Windows host.
+3. the same black-box behavioral properties on an interactive Windows host.
 
 State ownership, bounds, progressive disclosure, transaction boundaries, and honest outcomes are contract requirements; the Windows UI Automation, capture, and input mechanisms are implementation details behind the platform-neutral seam.
 

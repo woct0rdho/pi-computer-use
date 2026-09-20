@@ -2,7 +2,7 @@
 
 The normal loop is:
 
-1. Find a desktop or browser root.
+1. Find a desktop root.
 2. Observe that root and retain its `stateId`.
 3. Search, expand, or inspect that immutable state.
 4. Act using the same `stateId` and its `@e` refs.
@@ -11,7 +11,7 @@ The normal loop is:
 
 | Tool | Purpose |
 | --- | --- |
-| `find_roots` | Return a bounded, ranked set of desktop and CDP browser-page roots. |
+| `find_roots` | Return a bounded, ranked set of desktop roots. |
 | `observe_ui` | Capture the current/frontmost root or one exact `@r` root and return a folded outline plus `stateId`. |
 | `search_ui` | Run a bounded, ranked query over the full cached outline. |
 | `expand_ui` | Show local outline context for one ref. |
@@ -19,13 +19,10 @@ The normal loop is:
 | `act_ui` | Perform checked actions and return the resulting saved state, showing its changes or a full view when needed. |
 | `read_text` | Read fixed pages from state-owned `@e` text or immutable `@o` output. |
 | `wait_for` | Wait for a precise, optionally scoped condition. |
-| `launch_browser` | Start a managed CDP browser and return its observed page state. |
-| `navigate_browser` | Navigate the browser page owned by a state. |
-| `evaluate_browser` | Evaluate JavaScript in the browser page owned by a state. |
 
 ## Refs and state
 
-`find_roots` returns roots such as `@r1`. Every desktop window, transient surface, and CDP page participates in that same forest. `observe_ui` returns element refs such as `@e12` and a `stateId`.
+`find_roots` returns roots such as `@r1`. Every desktop window and transient surface participates in that same forest. `observe_ui` returns element refs such as `@e12` and a `stateId`.
 
 Every tool that consumes an `@e` ref also requires its owning `stateId`. A state remains queryable while it is in the bounded store, but a mutation from an old resource epoch is rejected as stale. `act_ui` returns the next usable `stateId`; consume it directly instead of observing again. Observe again only after an uncertain external mutation or state eviction.
 
@@ -122,19 +119,6 @@ act_ui({ stateId, actions: [{ action: "click", x: 420, y: 300 }] })
 
 Every model-visible textual result is limited to 48 KiB or 2,000 lines. Oversized results return a 16 KiB preview, focused-query guidance, and an immutable `@o` continuation. Discovery tools don't page through irrelevant matches: refine `find_roots` and `search_ui` instead. Continuation is intended for concrete long text, evaluation values, and diagnostics.
 
-## Browser use
-
-Browser-specific commands operate only on CDP browser-page states. `launch_browser` chooses the configured browser and debugging port internally and immediately returns an observed state:
-
-```ts
-const launched = launch_browser({ url: "https://example.com" })
-act_ui({ stateId: launched.stateId, actions: [{ action: "press", ref: "@e7" }] })
-navigate_browser({ stateId: returnedStateId, url: "https://openai.com" })
-evaluate_browser({ stateId: returnedStateId, expression: "document.title" })
-```
-
-Browser states use the same outline, action, text, and condition contracts as desktop states. Native browser windows remain ordinary desktop UI; use `observe_ui` and `act_ui` rather than `navigate_browser` or `evaluate_browser` on them.
-
 ## Parallel calls
 
-Pi may issue tool calls concurrently. Cached queries can overlap freely. Live work for different desktop processes or CDP pages can overlap; work for the same physical resource is ordered. Do not intentionally race two mutations derived from the same state: one wins and the other receives a stale-state error by design.
+Pi may issue tool calls concurrently. Cached queries can overlap freely. Live work for different desktop processes can overlap; work for the same physical resource is ordered. Do not intentionally race two mutations derived from the same state: one wins and the other receives a stale-state error by design.

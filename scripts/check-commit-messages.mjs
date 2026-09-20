@@ -32,7 +32,7 @@ if (invalid.length > 0) {
 	console.error("Invalid commit message(s):");
 	for (const subject of invalid) console.error(`- ${subject}`);
 	console.error("\nExpected format: feat|chore|refactor|fix|perf|docs|ci(<scope>): <summary> (or ci: <summary>)");
-	console.error("Example: fix(browser): stabilize window targeting");
+	console.error("Example: fix(windows): stabilize window targeting");
 	process.exit(1);
 }
 

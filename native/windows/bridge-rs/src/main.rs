@@ -220,7 +220,6 @@ fn handle_request(request: &Request) -> Response {
         "actBatch" => handle_act_batch(&request.args),
         "uiaReadText" => handle_read_text(&request.args),
         "uiaWaitFor" => handle_wait_for(&request.args),
-        "openBrowserLocation" => handle_open_browser_location(&request.args),
         other => Err(ProtocolError::new(
             format!("Unknown command '{other}'"),
             ErrorCode::UnsupportedCommand,
@@ -1400,36 +1399,6 @@ fn wait_target_hwnd(args: &Value) -> Result<isize, ProtocolError> {
         "waitFor target root was not found",
         ErrorCode::TargetNotFound,
     ))
-}
-
-fn handle_open_browser_location(args: &Value) -> Result<Value, ProtocolError> {
-    let app_name = args
-        .get("appName")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_lowercase();
-    let roots = handle_list_roots(&json!({}))?;
-    let root = roots_array(&roots).into_iter().find(|root| {
-        root.get("appName")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_lowercase()
-            .contains(&app_name)
-    });
-    if let Some(root) = root {
-        let hwnd = root.get("windowId").and_then(Value::as_i64).unwrap_or(0) as isize;
-        let url = args
-            .get("url")
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid("openBrowserLocation requires url"))?;
-        with_physical_input(|| {
-            window::ensure_foreground(hwnd)?;
-            input::open_browser_location(url)
-        })?;
-        Ok(json!({ "opened": true }))
-    } else {
-        Err(ProtocolError::new("Target browser window was not found; refusing to type into the currently focused window", ErrorCode::TargetNotFound))
-    }
 }
 
 fn roots_array(value: &Value) -> Vec<Value> {

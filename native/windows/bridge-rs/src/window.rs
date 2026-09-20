@@ -1,9 +1,8 @@
 //! Window discovery on Windows.
 //!
 //! On Windows this module enumerates top-level visible windows, extracts
-//! metadata (title, PID, process name, bounds, focus state), classifies
-//! known browsers, and returns the results with window refs scoped to a
-//! fresh state ID.
+//! metadata (title, PID, process name, bounds, focus state), and returns
+//! the results with window refs scoped to a fresh state ID.
 //!
 //! On non-Windows platforms all entry points return a deterministic
 //! `unsupported_platform` error.
@@ -25,31 +24,6 @@ use crate::refs::NativeHandle;
 use crate::state::StateId;
 #[cfg(windows)]
 use serde_json::json;
-
-// ---------------------------------------------------------------------------
-// Browser classification  (cross-platform)
-// ---------------------------------------------------------------------------
-
-/// Classify a process name as one of the known browser families.
-///
-/// Returns `(is_browser, browser_family)` where `browser_family` is one of
-/// `"chrome"`, `"edge"`, `"brave"`, or `None`.
-///
-/// Matching is case-insensitive and strips the `.exe` suffix when present.
-pub fn classify_browser(process_name: &str) -> (bool, Option<&'static str>) {
-    // Example inputs:  "chrome.exe", "msedge.exe", "NOTEPAD.EXE", "firefox"
-    let lower = process_name.to_lowercase();
-    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
-    match stem {
-        "chrome" | "chromium" => (true, Some("chrome")),
-        "msedge" | "edge" => (true, Some("edge")),
-        "brave" | "brave-browser" => (true, Some("brave")),
-        "firefox" => (true, Some("firefox")),
-        "vivaldi" => (true, Some("vivaldi")),
-        "opera" | "opera_gx" => (true, Some("opera")),
-        _ => (false, None),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Window enumeration
@@ -404,7 +378,6 @@ fn list_windows_impl(
         };
         let bounds = unsafe { get_window_bounds_json(hwnd) };
         let class_name = unsafe { get_window_class(hwnd) };
-        let (is_browser, browser_family) = classify_browser(&process_name);
         let wref = store.insert_window(NativeHandle::new(hwnd.0 as isize));
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale_factor = if dpi > 0 { f64::from(dpi) / 96.0 } else { 1.0 };
@@ -444,9 +417,7 @@ fn list_windows_impl(
             "isMinimized": is_minimized,
             "isOnscreen": !is_minimized,
             "isModal": is_modal,
-            "metadata": { "className": class_name, "exStyle": ex_style, "isBrowser": is_browser, "browserFamily": browser_family },
-            "isBrowser": is_browser,
-            "browserFamily": browser_family,
+            "metadata": { "className": class_name, "exStyle": ex_style },
         }));
     }
 
@@ -547,79 +518,6 @@ mod unit_tests {
     use super::*;
     use crate::error::ErrorCode;
 
-    // -- Browser classification (cross-platform) ----------------------------
-
-    #[test]
-    fn test_classify_browser_chrome_exe() {
-        let (is_browser, family) = classify_browser("chrome.exe");
-        assert!(is_browser);
-        assert_eq!(family, Some("chrome"));
-    }
-
-    #[test]
-    fn test_classify_browser_chromium_exe() {
-        let (is_browser, family) = classify_browser("chromium.exe");
-        assert!(is_browser);
-        assert_eq!(family, Some("chrome"));
-    }
-
-    #[test]
-    fn test_classify_browser_chrome_no_ext() {
-        // Some process names may not include .exe
-        let (is_browser, family) = classify_browser("chrome");
-        assert!(is_browser);
-        assert_eq!(family, Some("chrome"));
-    }
-
-    #[test]
-    fn test_classify_browser_edge_exe() {
-        let (is_browser, family) = classify_browser("msedge.exe");
-        assert!(is_browser);
-        assert_eq!(family, Some("edge"));
-    }
-
-    #[test]
-    fn test_classify_browser_edge_no_ext() {
-        let (is_browser, family) = classify_browser("edge");
-        assert!(is_browser);
-        assert_eq!(family, Some("edge"));
-    }
-
-    #[test]
-    fn test_classify_browser_brave_exe() {
-        let (is_browser, family) = classify_browser("brave.exe");
-        assert!(is_browser);
-        assert_eq!(family, Some("brave"));
-    }
-
-    #[test]
-    fn test_classify_browser_brave_browser_exe() {
-        let (is_browser, family) = classify_browser("brave-browser.exe");
-        assert!(is_browser);
-        assert_eq!(family, Some("brave"));
-    }
-
-    #[test]
-    fn test_classify_browser_not_a_browser() {
-        let (is_browser, family) = classify_browser("notepad.exe");
-        assert!(!is_browser);
-        assert_eq!(family, None);
-    }
-
-    #[test]
-    fn test_classify_browser_empty_string() {
-        let (is_browser, family) = classify_browser("");
-        assert!(!is_browser);
-        assert_eq!(family, None);
-    }
-
-    #[test]
-    fn test_classify_browser_case_insensitive() {
-        let (is_browser, family) = classify_browser("CHROME.EXE");
-        assert!(is_browser);
-        assert_eq!(family, Some("chrome"));
-    }
-
     // -- Platform support check (non-Windows) -------------------------------
 
     #[test]
@@ -674,9 +572,6 @@ mod unit_tests {
                         assert!(bounds.contains_key("height"));
                     }
                     assert!(w.get("isFocused").and_then(|v| v.as_bool()).is_some());
-                    assert!(w.get("isBrowser").and_then(|v| v.as_bool()).is_some());
-                    // browserFamily is Option<&str>, so it's either null or a string
-                    assert!(w.get("browserFamily").is_some());
                 }
             }
         }

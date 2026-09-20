@@ -11,24 +11,11 @@ export interface FindParams {
 	app?: string;
 	pid?: number;
 	/** Filters on the platform's best-effort presentation hint; only window vs transient is guaranteed. */
-	kind?: "window" | "menu" | "popover" | "dialog" | "browser_page";
+	kind?: "window" | "menu" | "popover" | "dialog";
 }
 
 export interface StateTargetParams {
 	stateId?: string;
-}
-
-export interface NavigateBrowserParams extends StateTargetParams {
-	url: string;
-}
-
-export interface LaunchBrowserParams {
-	url?: string;
-}
-
-export interface EvaluateBrowserParams {
-	stateId: string;
-	expression: string;
 }
 
 export interface ObserveParams extends ObserveTargetParams {
@@ -97,7 +84,4 @@ export const AGENT_TOOL_NAMES = new Set([
 	"expand_ui",
 	"inspect_ui",
 	"act_ui",
-	"navigate_browser",
-	"evaluate_browser",
-	"launch_browser",
 ]);

@@ -3,12 +3,9 @@ import { Type } from "typebox";
 import {
 	ensureComputerUseSetup,
 	executeAct,
-	executeEvaluateBrowser,
 	executeExpandUi,
 	executeInspectUi,
-	executeLaunchBrowser,
 	executeFind,
-	executeNavigateBrowser,
 	executeObserve,
 	executeReadText,
 	executeSearchUi,
@@ -54,7 +51,7 @@ const findTool = defineTool({
 		text: Type.Optional(Type.String({ description: "Ranked app or title text", maxLength: 256 })),
 		app: Type.Optional(Type.String({ description: "Exact normalized app name", maxLength: 256 })),
 		pid: Type.Optional(Type.Number({ description: "Exact process id" })),
-		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("popover"), Type.Literal("dialog"), Type.Literal("browser_page")], { description: "Exact root kind" })),
+		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("popover"), Type.Literal("dialog")], { description: "Exact root kind" })),
 	}),
 	execute: executeFind,
 });
@@ -135,40 +132,10 @@ const waitForTool = defineTool({
 	execute: executeWaitFor,
 });
 
-const launchBrowserTool = defineTool({
-	name: "launch_browser",
-	label: "Launch Browser Context",
-	description: "Launch the configured Pi-managed CDP browser and return an observed browser-page state.",
-	promptSnippet: "Use for browser work that needs a managed CDP context.",
-	promptGuidelines: ["Prefer curl through bash when the page is directly fetchable."],
-	parameters: Type.Object({ url: Type.Optional(Type.String({ maxLength: 8192 })) }),
-	execute: executeLaunchBrowser,
-});
-
-const navigateBrowserTool = defineTool({
-	name: "navigate_browser",
-	label: "Navigate Browser",
-	description: "Navigate an observed CDP browser-page state to an HTTP(S) URL.",
-	promptSnippet: "Native browser windows use act_ui; this tool is CDP-only.",
-	parameters: Type.Object({ url: Type.String({ maxLength: 8192 }), stateId }),
-	execute: executeNavigateBrowser,
-});
-
-const evaluateBrowserTool = defineTool({
-	name: "evaluate_browser",
-	label: "Evaluate Browser",
-	description: "Evaluate targeted JavaScript in a CDP browser-page state; returned output is strictly bounded.",
-	promptSnippet: "Prefer observe/search/read; return selected fields, aggregates, or bounded slices.",
-	parameters: Type.Object({ stateId, expression: Type.String({ maxLength: 65_536 }) }),
-	execute: executeEvaluateBrowser,
-});
-
 function formatConfigStatus(): string {
 	const loaded = getLoadedComputerUseConfig();
 	return [
 		"pi-computer-use configuration",
-		`browser_use: ${loaded.config.browser_use ? "enabled" : "disabled"}`,
-		`managed_browser: ${loaded.config.managed_browser}`,
 		`headless: ${loaded.config.headless ? "enabled" : "disabled"}`,
 		"",
 		"Sources:",
@@ -178,7 +145,7 @@ function formatConfigStatus(): string {
 }
 
 export default function computerUseExtension(pi: ExtensionAPI): void {
-	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(tool);
+	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool]) pi.registerTool(tool);
 
 	pi.registerCommand("computer-use", {
 		description: "Show pi-computer-use configuration",

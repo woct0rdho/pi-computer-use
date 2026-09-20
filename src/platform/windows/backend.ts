@@ -4,33 +4,6 @@ import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, Platform
 import { WINDOWS_HELPER_PROTOCOL_VERSION, windowsHelper } from "./helper.ts";
 import { assertPlatformArchitecture } from "../architecture.ts";
 
-function normalizedProcessName(appName: string): string {
-	return appName.toLowerCase().replace(/\.exe$/i, "");
-}
-
-function classifyBrowser(appName: string): false | "chrome" | "edge" | "brave" | "firefox" | "vivaldi" | "opera" {
-	switch (normalizedProcessName(appName)) {
-		case "chrome":
-		case "chromium":
-			return "chrome";
-		case "msedge":
-		case "edge":
-			return "edge";
-		case "brave":
-		case "brave-browser":
-			return "brave";
-		case "firefox":
-			return "firefox";
-		case "vivaldi":
-			return "vivaldi";
-		case "opera":
-		case "opera_gx":
-			return "opera";
-		default:
-			return false;
-	}
-}
-
 function parseFramePoints(raw: unknown): FramePoints {
 	const frame = (raw as any)?.framePoints ?? (raw as any)?.bounds ?? {};
 	return {
@@ -131,11 +104,5 @@ export const windowsBackend: ComputerUsePlatformBackend = {
 	},
 	async waitFor(args: PlatformWaitForRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformWaitForResponse> {
 		return await windowsHelper.command("uiaWaitFor", { ...args }, options);
-	},
-	isBrowserApp(appName: string): boolean { return classifyBrowser(appName) !== false; },
-	isChromeFamilyApp(appName: string): boolean { return classifyBrowser(appName) === "chrome" || classifyBrowser(appName) === "edge" || classifyBrowser(appName) === "brave"; },
-	async openBrowserLocation(target: { appName: string }, url: string, signal?: AbortSignal): Promise<boolean> {
-		await windowsHelper.command("openBrowserLocation", { ...target, url }, { signal, timeoutMs: 10_000 });
-		return true;
 	},
 };

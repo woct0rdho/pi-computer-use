@@ -1,18 +1,11 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
-import { access } from "node:fs/promises";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
 import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, prepareAction, type ActionState, type PreparedAction } from "./actions.ts";
-import { cdpClickForContext, cdpDragForContext, cdpEvaluateForContext, cdpKeypressForContext, cdpMouseForContext, cdpNavigateContext, cdpScrollForContext, cdpSnapshotForContext, cdpTabForWindow, cdpTypeFocusedForContext, cdpTypeForContext, disconnectCdp, listCdpPageContexts, type CdpConsoleEntry, type CdpPageSnapshot } from "./cdp.ts";
-import { getComputerUseConfig, isBrowserUseEnabled, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
+import { getComputerUseConfig, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
 import { noteAfterAct, noteFromLook, noteRegionKeyForRef, renderNote, type WindowNote } from "./note.ts";
-import { foldToBudget, graftScopedOutline, nodeByRef, outlineNodeLabel, outlineNodePath, rankedTextMatch, restoreOutline, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
+import { foldToBudget, graftScopedOutline, nodeByRef, outlineNodeLabel, outlineNodePath, rankedTextMatch, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
 import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput, UI_TEXT_PAGE_CHARS } from "./output.ts";
-import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
+import { AGENT_TOOL_NAMES, type ActParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type FindParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
 import type { FramePoints, HelperActPerformed, HelperActResult, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
@@ -20,7 +13,7 @@ import { ResourceScheduler } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
-export type { ActParams, EvaluateBrowserParams, ExpandUiParams, ImageMode, InspectUiParams, LaunchBrowserParams, FindParams, MouseButtonName, NavigateBrowserParams, ObserveParams, ObserveTargetParams, ReadTextParams, RootSelector, SearchUiParams, StateTargetParams, UiAction, WaitForParams } from "./contract.ts";
+export type { ActParams, ExpandUiParams, ImageMode, InspectUiParams, FindParams, MouseButtonName, ObserveParams, ObserveTargetParams, ReadTextParams, RootSelector, SearchUiParams, StateTargetParams, UiAction, WaitForParams } from "./contract.ts";
 
 interface ActivationFlags {
 	activated: boolean;
@@ -34,12 +27,7 @@ type DeliveryPolicy = "ax_only" | "background" | "default" | "foreground";
 type ActOutcome = "worked" | "didnt" | "unknown";
 
 interface ExecutionTrace {
-	strategy:
-		| "look"
-		| "act"
-		| "wait"
-		| "browser_open_location"
-		| "cdp_navigate";
+	strategy: "look" | "act" | "wait";
 	runtimeMode?: ExecutionVariant;
 	variant?: ExecutionVariant;
 	stealthCompatible?: boolean;
@@ -96,7 +84,6 @@ interface ComputerUseDetails {
 	activation: ActivationFlags;
 	execution: ExecutionTrace;
 	config?: {
-		browser_use: boolean;
 		headless: boolean;
 	};
 	helper?: PlatformDiagnostics;
@@ -106,17 +93,13 @@ interface ComputerUseDetails {
 		message?: string;
 		debug?: unknown;
 	};
-	/** Recent browser console messages/exceptions; only present when CDP is active. */
-	console?: CdpConsoleEntry[];
 	imageReason?:
 		| "fallback_recovery"
-		| "browser_ax_window_unavailable"
 		| "no_ax_targets"
 		| "sparse_ax_targets"
 		| "weak_ax_targets"
 		| "unlabeled_ax_targets"
-		| "duplicated_ax_labels"
-		| "browser_wait_verification";
+		| "duplicated_ax_labels";
 }
 interface TerminalDesktopActionDetails {
 	tool: "act_ui";
@@ -159,36 +142,11 @@ interface ListWindowsDetails {
 		role?: string;
 		subrole?: string;
 		zOrder: number;
-		browserUseAllowed: boolean;
 		score: number;
-		url?: string;
 	}>;
 	config: {
-		browser_use: boolean;
 		headless: boolean;
 	};
-}
-
-interface BrowserObservationDetails {
-	tool: string;
-	kind: "browser_page";
-	stateId: string;
-	baseStateId?: string;
-	view: "full" | "diff";
-	changes?: OutlineChange[];
-	root: { ref: string; kind: "browser_page"; title: string; url: string };
-	outline: SerializedOutline;
-	renderedOutline: string;
-}
-
-interface EvaluateBrowserDetails {
-	tool: "evaluate_browser";
-	baseStateId: string;
-	stateId: string;
-	view: "full" | "diff";
-	changes?: OutlineChange[];
-	outline: SerializedOutline;
-	renderedOutline: string;
 }
 
 interface ReadTextDetails {
@@ -263,12 +221,7 @@ interface WindowRefRecord {
 interface RuntimeState {
 	windowRefs: Map<string, WindowRefRecord>;
 	windowRefByIdentity: Map<string, string>;
-	browserRootByContext: Map<string, string>;
-	browserContextByRoot: Map<string, string>;
 	nextRootRefIndex: number;
-	managedBrowser?: ChildProcess;
-	managedBrowserCdpPort?: string;
-	previousCdpPort?: string;
 	helperDiagnostics?: PlatformDiagnostics;
 }
 
@@ -282,17 +235,12 @@ const LOOK_TIMEOUT_MS = 33_000;
 
 const ACTION_SETTLE_MS = 280;
 
-const BROWSER_CONTEXT_PREFIX = "browser:";
-const MANAGED_BROWSER_READY_TIMEOUT_MS = 15_000;
 const AUTO_IMAGE_MAX_DIMENSION = 900;
 const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
-const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
 
 const runtimeState: RuntimeState = {
 	windowRefs: new Map(),
 	windowRefByIdentity: new Map(),
-	browserRootByContext: new Map(),
-	browserContextByRoot: new Map(),
 	nextRootRefIndex: 1,
 };
 
@@ -318,27 +266,11 @@ function persistOperation(state: OperationState): void {
 export async function shutdownComputerUseSession(): Promise<void> {
 	await resourceScheduler.close();
 	resourceScheduler = new ResourceScheduler();
-	disconnectCdp();
-
-	const managedBrowser = runtimeState.managedBrowser;
-	runtimeState.managedBrowser = undefined;
-	if (managedBrowser) {
-		managedBrowser.kill("SIGTERM");
-		managedBrowser.unref();
-	}
-	if (runtimeState.managedBrowserCdpPort && process.env.PI_COMPUTER_USE_CDP_PORT === runtimeState.managedBrowserCdpPort) {
-		if (runtimeState.previousCdpPort === undefined) delete process.env.PI_COMPUTER_USE_CDP_PORT;
-		else process.env.PI_COMPUTER_USE_CDP_PORT = runtimeState.previousCdpPort;
-	}
-	runtimeState.managedBrowserCdpPort = undefined;
-	runtimeState.previousCdpPort = undefined;
 
 	savedStates.clear();
 	clearStoredOutputs();
 	runtimeState.windowRefs.clear();
 	runtimeState.windowRefByIdentity.clear();
-	runtimeState.browserRootByContext.clear();
-	runtimeState.browserContextByRoot.clear();
 	runtimeState.nextRootRefIndex = 1;
 	runtimeState.helperDiagnostics = undefined;
 	await currentPlatformBackend.shutdown?.();
@@ -372,14 +304,7 @@ function settleMsForExecution(execution: ExecutionTrace): number {
 	// Any deltaSource means the helper already awaited UI quiescence; the
 	// bridge must not double-pay with its own settle sleep.
 	if (execution.performed?.deltaSource) return 0;
-	if (execution.variant === "stealth") {
-		switch (execution.strategy) {
-			case "browser_open_location":
-				return 120;
-			default:
-				return 120;
-		}
-	}
+	if (execution.variant === "stealth") return 120;
 	return ACTION_SETTLE_MS;
 }
 
@@ -498,7 +423,6 @@ function wireRefForNode(node: OutlineNode): string {
 }
 
 function imageFallbackReason(
-	tool: string,
 	result: CaptureResult,
 	imageMode: ImageMode = "auto",
 ): { reason: NonNullable<ComputerUseDetails["imageReason"]>; message: string } | undefined {
@@ -511,9 +435,6 @@ function imageFallbackReason(
 	}
 	if (labeled * 3 < outline.nodes.length) {
 		return { reason: "unlabeled_ax_targets", message: "Most outline nodes are unlabeled, so the look image is attached for context." }
-	}
-	if (tool === "wait" && currentPlatformBackend.isBrowserApp(result.target.appName)) {
-		return { reason: "browser_wait_verification", message: "Browser content may have changed visually during wait, so an image is attached for fallback." }
 	}
 	return undefined
 }
@@ -566,14 +487,12 @@ function appMatchesWindowQuery(app: HelperApp, query: FindParams): boolean {
 }
 
 function formatWindowLine(window: ListWindowsDetails["windows"][number]): string {
-	if (window.kind === "browser_page") return `- ${window.windowRef} browser_page ${JSON.stringify(window.windowTitle)}${window.url ? ` — ${window.url}` : ""}`;
 	const flags = [
 		window.isFocused ? "focused" : undefined,
 		window.isMain ? "main" : undefined,
 		window.isModal ? "modal" : undefined,
 		window.isOnscreen ? "onscreen" : undefined,
 		window.isMinimized ? "minimized" : undefined,
-		window.browserUseAllowed ? undefined : "browser_use_disabled",
 	]
 		.filter(Boolean)
 		.join(", ");
@@ -584,14 +503,6 @@ function formatWindowLine(window: ListWindowsDetails["windows"][number]): string
 
 async function getFrontmost(signal?: AbortSignal): Promise<FrontmostResult> {
 	return await currentPlatformBackend.getFrontmost(signal);
-}
-
-function assertBrowserUseAllowed(target: { appName: string }): void {
-	if (!isBrowserUseEnabled() && currentPlatformBackend.isBrowserApp(target.appName)) {
-		throw new Error(
-			`Browser use is disabled by pi-computer-use config, so '${target.appName}' cannot be controlled. Enable browser_use in ~/.pi/agent/extensions/pi-computer-use.json or .pi/computer-use.json to allow browser windows.`,
-		);
-	}
 }
 
 function windowRecordIdentity(record: Pick<WindowRefRecord, "pid" | "windowId" | "nativeWindowRef" | "windowTitle" | "framePoints">): string {
@@ -622,15 +533,6 @@ function storeWindowRef(record: Omit<WindowRefRecord, "ref">): WindowRefRecord {
 	runtimeState.windowRefByIdentity.set(identity, ref);
 	runtimeState.windowRefs.set(ref, stored);
 	return stored;
-}
-
-function storeBrowserRootRef(contextId: string): string {
-	const existing = runtimeState.browserRootByContext.get(contextId);
-	if (existing) return existing;
-	const ref = `@r${runtimeState.nextRootRefIndex++}`;
-	runtimeState.browserRootByContext.set(contextId, ref);
-	runtimeState.browserContextByRoot.set(ref, contextId);
-	return ref;
 }
 
 function storeWindowRefForTarget(target: ResolvedTarget): string {
@@ -724,7 +626,6 @@ function nativeWindowRequest(target: Pick<CurrentTarget, "pid" | "windowId" | "n
 }
 
 function setCurrentTarget(target: ResolvedTarget): void {
-	assertBrowserUseAllowed(target);
 	const windowRef = target.windowRef ?? storeWindowRefForTarget(target);
 	operationState().currentTarget = {
 		appName: target.appName,
@@ -776,7 +677,6 @@ async function resolveTargetByWindowSelector(selector: RootSelector, signal?: Ab
 			const windows = await listWindows(app.pid, signal);
 			const match = windows.find((window) => window.windowId === numericWindowId);
 			if (match) {
-				assertBrowserUseAllowed(app);
 				const resolved = toResolvedTarget(app, match);
 				setCurrentTarget(resolved);
 				return resolved;
@@ -789,8 +689,7 @@ async function resolveTargetByWindowSelector(selector: RootSelector, signal?: Ab
 		throw new Error(`Root ref '${normalized}' is not available in this session. Call find_roots first.`);
 	}
 
-	const config = getComputerUseConfig();
-	const candidates = await collectWindowDetails(await listApps(signal), config, signal);
+	const candidates = await collectWindowDetails(await listApps(signal), signal);
 	const query = normalizeText(normalized);
 	const exact = candidates.filter((candidate) => normalizeText(candidate.app) === query || normalizeText(candidate.windowTitle) === query);
 	const fuzzy = exact.length > 0 ? exact : candidates.filter((candidate) => `${normalizeText(candidate.app)} ${normalizeText(candidate.windowTitle)}`.includes(query));
@@ -863,10 +762,6 @@ async function resolveFrontmostTarget(signal?: AbortSignal): Promise<ResolvedTar
 	const windows = await listWindows(frontmost.pid, signal);
 	if (!windows.length) {
 		throw new Error("No frontmost controllable root was found. Open an app window and call observe_ui again.");
-	}
-
-	if (currentPlatformBackend.isBrowserApp(app.appName)) {
-		assertBrowserUseAllowed(app);
 	}
 
 	let selected = windows.find((window) => window.windowId !== undefined && window.windowId === frontmost.windowId);
@@ -978,7 +873,7 @@ async function buildToolResult(
 	base?: { stateId: string; outline: Outline },
 ): Promise<AgentToolResult<ComputerUseDetails>> {
 	const state = operationState();
-	const fallbackReason = imageFallbackReason(tool, result, imageMode);
+	const fallbackReason = imageFallbackReason(result, imageMode);
 	const transition = base ? changesBetween(base.outline, result.outline) : undefined;
 	const useDiff = Boolean(transition && !transition.useFullView);
 	const folded = foldToBudget(result.outline);
@@ -1018,18 +913,6 @@ async function buildToolResult(
 		imageReason: fallbackReason?.reason,
 	};
 
-	// Console piggyback: when a CDP connection is active for this browser
-	// window, surface console output collected since the last tool result.
-	let consoleText = "";
-	if (currentPlatformBackend.isChromeFamilyApp(result.target.appName)) {
-		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints);
-		const entries = tab?.drainConsole() ?? [];
-		if (entries.length > 0) {
-			details.console = entries;
-			consoleText = `\n\nBrowser console since the last action:\n${entries.map((entry) => `[${entry.level}] ${entry.text}`).join("\n")}`;
-		}
-	}
-
 	const noteText = renderedNote ? `\n\n${renderedNote}` : "";
 	// The model must echo capture.stateId into follow-up tools. Exposing only the
 	// helper-internal lookId here makes a plausible but invalid stateId easy to use.
@@ -1039,7 +922,7 @@ async function buildToolResult(
 		: `\n\nOutline (${folded.nodeCount} nodes, stateId ${result.capture.stateId}${transition?.reason ? `, full view: ${transition.reason}` : ""}${folded.truncated ? ", folded output truncated" : ""}):\n${folded.text}`;
 	const fallbackText = fallbackReason ? `\n\n${fallbackReason.message}` : "";
 	const deltaText = rootDeltaLines(execution).join("\n");
-	const content: AgentToolResult<ComputerUseDetails>["content"] = [{ type: "text", text: `${summary}${deltaText ? `\n${deltaText}` : ""}${consoleText}${noteText}${outlineText}${fallbackText}` }];
+	const content: AgentToolResult<ComputerUseDetails>["content"] = [{ type: "text", text: `${summary}${deltaText ? `\n${deltaText}` : ""}${noteText}${outlineText}${fallbackText}` }];
 	if (fallbackReason && result.look.image?.jpegBase64) {
 		content.push({ type: "image", data: result.look.image.jpegBase64, mimeType: result.look.image.mimeType ?? "image/jpeg" });
 	}
@@ -1184,7 +1067,7 @@ function rootDeltaLines(execution: ExecutionTrace): string[] {
 	});
 }
 
-function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<typeof getComputerUseConfig>): ListWindowsDetails["windows"][number] {
+function windowDetails(app: HelperApp, window: HelperWindow): ListWindowsDetails["windows"][number] {
 	const storedRef = storeWindowRefForAppWindow(app, window);
 	return {
 		app: app.appName,
@@ -1204,7 +1087,6 @@ function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<
 		role: window.role,
 		subrole: window.subrole,
 		zOrder: window.zOrder,
-		browserUseAllowed: config.browser_use || !currentPlatformBackend.isBrowserApp(app.appName),
 		score: scoreWindow(window),
 	};
 }
@@ -1214,26 +1096,26 @@ function sortWindowDetails(windows: ListWindowsDetails["windows"]): ListWindowsD
 }
 
 // Side effect: stores stable @r refs for discovered windows in runtimeState.
-async function collectWindowDetails(apps: HelperApp[], config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
+async function collectWindowDetails(apps: HelperApp[], signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
 	const perApp = await Promise.all(apps.map(async (app) => ({ app, windows: await listWindows(app.pid, signal) })));
-	return sortWindowDetails(perApp.flatMap(({ app, windows }) => windows.map((window) => windowDetails(app, window, config))));
+	return sortWindowDetails(perApp.flatMap(({ app, windows }) => windows.map((window) => windowDetails(app, window))));
 }
 
-function collectBroadWindowDetails(roots: HelperWindow[], config: ReturnType<typeof getComputerUseConfig>): ListWindowsDetails["windows"] {
+function collectBroadWindowDetails(roots: HelperWindow[]): ListWindowsDetails["windows"] {
 	const windows: ListWindowsDetails["windows"] = [];
 	for (const window of roots) {
 		if (!window.pid) continue;
-		windows.push(windowDetails({ appName: window.appName ?? "Unknown App", pid: window.pid }, window, config));
+		windows.push(windowDetails({ appName: window.appName ?? "Unknown App", pid: window.pid }, window));
 	}
 	return sortWindowDetails(windows);
 }
 
-async function windowDetailsForFind(query: FindParams, config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
+async function windowDetailsForFind(query: FindParams, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
 	if (!query.app && !Number.isFinite(query.pid)) {
-		return collectBroadWindowDetails(await currentPlatformBackend.listRoots({}, signal), config);
+		return collectBroadWindowDetails(await currentPlatformBackend.listRoots({}, signal));
 	}
 	const apps = (await listApps(signal)).filter((app) => appMatchesWindowQuery(app, query));
-	return await collectWindowDetails(apps, config, signal);
+	return await collectWindowDetails(apps, signal);
 }
 
 async function performListWindows(params: FindParams, signal?: AbortSignal): Promise<AgentToolResult<ListWindowsDetails>> {
@@ -1244,36 +1126,14 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
 		pid: Number.isFinite(rawParams.pid) ? Math.trunc(rawParams.pid!) : undefined,
 		kind: rawParams.kind,
 	};
-	const config = getComputerUseConfig();
-	const desktopForest = await windowDetailsForFind(query, config, signal);
-	const includeBrowserPages = !query.pid && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
-	const browserForest: ListWindowsDetails["windows"] = !includeBrowserPages ? [] : (await listCdpPageContexts().catch(() => []))
-		.map((page) => ({
-			app: "Browser",
-			pid: 0,
-			kind: "browser_page",
-			windowTitle: page.title || page.url,
-			windowRef: storeBrowserRootRef(page.contextId),
-			framePoints: { x: 0, y: 0, w: 1, h: 1 },
-			scaleFactor: 1,
-			isMinimized: false,
-			isOnscreen: true,
-			isMain: false,
-			isFocused: false,
-			isModal: false,
-			zOrder: Number.MAX_SAFE_INTEGER,
-			browserUseAllowed: true,
-			score: 0,
-			url: page.url,
-		}));
-	const allRoots = [...desktopForest, ...browserForest];
-	const forest = allRoots.filter((root) => !query.kind || root.kind === query.kind);
+	const desktopForest = await windowDetailsForFind(query, signal);
+	const forest = desktopForest.filter((root) => !query.kind || root.kind === query.kind);
 	const ranked = forest.map((root, order) => ({ root, order, match: query.text ? rankedTextMatch([root.app, root.windowTitle], query.text) : { reason: "filter" as const, score: 1 } }))
 		.filter((entry) => entry.match)
 		.sort((a, b) => b.match!.score - a.match!.score || Number(b.root.isFocused) - Number(a.root.isFocused) || a.root.zOrder - b.root.zOrder || a.order - b.order);
 	const totalMatches = ranked.length;
 	const windows = ranked.slice(0, 12).map((entry) => entry.root);
-	const details: ListWindowsDetails = { tool: "find_roots", query, windows, totalMatches, returned: windows.length, hasMore: totalMatches > windows.length, config };
+	const details: ListWindowsDetails = { tool: "find_roots", query, windows, totalMatches, returned: windows.length, hasMore: totalMatches > windows.length, config: { headless: getComputerUseConfig().headless } };
 	const lines = windows.map(formatWindowLine);
 	const text = lines.length
 		? `Found ${totalMatches} matching root${totalMatches === 1 ? "" : "s"}; returned ${windows.length}${totalMatches > windows.length ? ". Refine the filters for additional roots" : ""}. Use @r refs with observe_ui({ root: "@rN" }).\n${lines.join("\n")}`
@@ -1285,59 +1145,6 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
 
 function normalizeImageMode(value: unknown): ImageMode {
 	return value === "always" || value === "never" ? value : "auto";
-}
-
-function isBrowserContextId(contextId: string | undefined): contextId is string {
-	return Boolean(contextId?.startsWith(BROWSER_CONTEXT_PREFIX));
-}
-
-function browserSnapshotTarget(snapshotId: string | undefined, ref: string | undefined): { contextId: string; backendNodeId?: number } | undefined {
-	if (!snapshotId || !ref) return undefined;
-	const record = savedStates.get(snapshotId);
-	const snapshot = record?.value.kind === "browser" ? record.value.snapshot : undefined;
-	const target = snapshot?.targets.find((candidate) => candidate.ref === ref);
-	if (!snapshot || !target) return undefined;
-	return { contextId: snapshot.contextId, backendNodeId: target.backendNodeId };
-}
-
-function browserContextForOperation(): string | undefined {
-	const contextId = operationState().contextId;
-	return isBrowserContextId(contextId) ? contextId : undefined;
-}
-
-async function withBrowserWrite<T>(contextId: string, work: () => Promise<T>): Promise<T> {
-	const state = operationState();
-	const targetId = contextId.slice(BROWSER_CONTEXT_PREFIX.length);
-	const resourceKey = `cdp:${targetId}`;
-	const baseEpoch = state.epoch ?? resourceScheduler.epoch(resourceKey);
-	const result = await resourceScheduler.write(resourceKey, baseEpoch, async (nextEpoch) => {
-		state.resourceKey = resourceKey;
-		state.epoch = nextEpoch;
-		return await work();
-	});
-	return result.value;
-}
-
-function browserObservationResult(browser: CdpPageSnapshot, resourceKey: string, epoch: number, tool: string, base?: { stateId: string; outline: SerializedOutline }): AgentToolResult<BrowserObservationDetails> {
-	savedStates.set({ stateId: browser.snapshotId, resourceKey, epoch, value: { kind: "browser", snapshot: browser, outline: browser.outline } });
-	const currentOutline = restoreOutline(browser.outline);
-	const transition = base ? changesBetween(restoreOutline(base.outline), currentOutline) : undefined;
-	const useDiff = Boolean(transition && !transition.useFullView);
-	const folded = foldToBudget(currentOutline);
-	const root = { ref: storeBrowserRootRef(browser.contextId), kind: "browser_page" as const, title: browser.title, url: browser.url };
-	const details: BrowserObservationDetails = { tool, kind: "browser_page", stateId: browser.snapshotId, baseStateId: base?.stateId, view: useDiff ? "diff" : "full", changes: useDiff ? transition?.changes : undefined, root, outline: browser.outline, renderedOutline: folded.text };
-	const viewText = useDiff
-		? `Changes (${transition!.changedNodeCount}, ${base!.stateId} → ${browser.snapshotId}):\n${renderChanges(transition!.changes) || "(no element changes)"}\nUse stateId ${browser.snapshotId} for subsequent actions and queries.`
-		: folded.text;
-	return { content: [{ type: "text", text: `${tool} completed for ${root.ref} ${JSON.stringify(browser.title)}. State ${browser.snapshotId}.\n${viewText}` }], details };
-}
-
-async function refreshBrowserSnapshot(contextId: string, tool: string, base?: { stateId: string; outline: SerializedOutline }): Promise<AgentToolResult<BrowserObservationDetails>> {
-	const browser = await cdpSnapshotForContext(contextId);
-	if (!browser) throw new Error(`Browser root '${contextId}' is no longer available. Call find_roots and observe_ui again.`);
-	const state = operationState();
-	const resourceKey = state.resourceKey ?? `cdp:${browser.targetId}`;
-	return browserObservationResult(browser, resourceKey, state.epoch ?? resourceScheduler.epoch(resourceKey), tool, base);
 }
 
 function sliceText(value: string, offsetValue: unknown, _limitValue?: unknown): Pick<ReadTextDetails, "offset" | "limit" | "totalChars" | "hasMore" | "text"> {
@@ -1365,21 +1172,6 @@ async function performReadText(params: ReadTextParams, signal?: AbortSignal): Pr
 			: page.complete ? "" : "\n\ncontinuation storage limit reached; rerun a more focused query for the remainder";
 		return { content: [{ type: "text", text: `${page.text || "(empty output page)"}${suffix}` }], details };
 	}
-	const contextId = operationState().contextId;
-	if (isBrowserContextId(contextId)) {
-		const snapshot = operationState().browserSnapshot;
-		if (!snapshot || snapshot.contextId !== contextId) throw new Error(`Browser state '${params.stateId}' is unavailable. Observe the browser root again.`);
-		if (!ref) throw new Error("read_text requires an @e ref for browser contexts; use the outline root ref for whole-page text.");
-		const outline = restoreOutline(snapshot.outline);
-		const node = nodeByRef(outline, ref);
-		if (!node) throw new Error(`Browser text ref '${ref}' is unavailable in this state.`);
-		const collect = (current: OutlineNode): string[] => [outlineNodeLabel(current), ...current.text.map((item) => item.string), ...current.children.flatMap(collect)].filter(Boolean);
-		const value = node === outline.root ? snapshot.text : [...new Set(collect(node))].join("\n");
-		const sliced = sliceText(value, params.offset);
-		const details: ReadTextDetails = { tool: "read_text", ref, ...sliced };
-		return { content: [{ type: "text", text: sliced.text || "(empty text slice)" }], details };
-	}
-
 	validateStateId(params.stateId);
 	if (!ref) throw new Error("read_text requires ref for desktop contexts. Call observe_ui/inspect_ui and use a text-bearing outline ref.");
 	const node = outlineNodeByRef(ref);
@@ -1458,43 +1250,8 @@ function conditionScopeNode(outline: Outline, condition: ReturnType<typeof valid
 }
 
 async function performWaitFor(params: WaitForParams, signal?: AbortSignal): Promise<AgentToolResult<WaitForDetails>> {
-	const contextId = operationState().contextId;
 	const condition = validateCondition(params);
 	const { text, role, value, scopeRef, scopeExact, gone, timeoutMs } = condition;
-
-	if (isBrowserContextId(contextId)) {
-		const state = operationState();
-		if (!state.resourceKey) throw new Error("The browser observation has no live resource identity. Observe again.");
-		const baseSnapshot = state.browserSnapshot;
-		if (!baseSnapshot) throw new Error("Browser wait requires a complete base observation.");
-		conditionScopeNode(restoreOutline(baseSnapshot.outline), condition);
-		const deadline = Date.now() + timeoutMs;
-		let lastSnapshot: CdpPageSnapshot | undefined;
-		let lastEpoch = state.epoch ?? resourceScheduler.epoch(state.resourceKey);
-		const finish = (found: boolean, timedOut?: boolean): AgentToolResult<WaitForDetails> => {
-			if (!lastSnapshot) throw new Error("Browser wait completed without an observation.");
-			savedStates.set({ stateId: lastSnapshot.snapshotId, resourceKey: state.resourceKey!, epoch: lastEpoch, value: { kind: "browser", snapshot: lastSnapshot, outline: lastSnapshot.outline } });
-			const successorOutline = restoreOutline(lastSnapshot.outline);
-			const transition = changesBetween(restoreOutline(baseSnapshot.outline), successorOutline);
-			const useDiff = !transition.useFullView;
-			const renderedOutline = foldToBudget(successorOutline).text;
-			const details: WaitForDetails = { tool: "wait_for", stateId: lastSnapshot.snapshotId, baseStateId: baseSnapshot.snapshotId, view: useDiff ? "diff" : "full", changes: useDiff ? transition.changes : undefined, found, gone: found && gone || undefined, timedOut, nodeCount: lastSnapshot.targets.length, text, role, value, scopeRef, outline: lastSnapshot.outline, renderedOutline };
-			const message = found ? (gone ? "Condition disappeared." : "Condition appeared.") : `Timed out after ${timeoutMs}ms waiting for condition.`;
-			const viewText = useDiff ? `${renderChanges(transition.changes) || "(no element changes)"}\nUse stateId ${lastSnapshot.snapshotId} for subsequent actions and queries.` : renderedOutline;
-			return { content: [{ type: "text", text: `${message}\n${viewText}` }], details };
-		};
-		do {
-			const scheduled = await resourceScheduler.read(state.resourceKey, async () => await cdpSnapshotForContext(contextId));
-			lastSnapshot = scheduled.value;
-			lastEpoch = scheduled.epoch;
-			if (!lastSnapshot) throw new Error(`Browser root '${contextId}' is no longer available. Call find_roots and observe_ui again.`);
-			const present = outlineConditionPresent(restoreOutline(lastSnapshot.outline), condition);
-			if (present !== gone) return finish(true);
-			await sleep(200, signal);
-		} while (Date.now() < deadline);
-		return finish(false, true);
-	}
-
 	const state = operationState();
 	const baseView = { stateId: state.currentCapture!.stateId, outline: state.currentOutline! };
 	let target = await resolveCurrentTarget(signal);
@@ -1548,18 +1305,9 @@ function sameRootIdentity(a: CurrentTarget, b: CurrentTarget): boolean {
 }
 
 /** Side effects: captures/updates current target, capture state, look, and parsed outline. */
-async function performObserve(params: ObserveParams, signal?: AbortSignal): Promise<AgentToolResult<ComputerUseDetails | BrowserObservationDetails>> {
+async function performObserve(params: ObserveParams, signal?: AbortSignal): Promise<AgentToolResult<ComputerUseDetails>> {
 	const requestedRoot = typeof params.root === "string" ? params.root : undefined;
 	if (requestedRoot && !/^@r\d+$/.test(requestedRoot)) throw new Error("observe_ui.root must be an exact @r ref issued by find_roots.");
-	const browserContextId = requestedRoot ? runtimeState.browserContextByRoot.get(requestedRoot) : undefined;
-	if (isBrowserContextId(browserContextId)) {
-		const targetId = browserContextId.slice(BROWSER_CONTEXT_PREFIX.length);
-		const resourceKey = `cdp:${targetId}`;
-		const scheduled = await resourceScheduler.read(resourceKey, async () => await cdpSnapshotForContext(browserContextId));
-		const browser = scheduled.value;
-		if (!browser) throw new Error(`Browser context '${browserContextId}' is no longer available. Call find_roots again.`);
-		return browserObservationResult(browser, resourceKey, scheduled.epoch, "observe_ui");
-	}
 	const state = operationState();
 	const mode = params.mode ?? "fused";
 	const image = mode === "semantic" ? "never" : mode === "visual" ? "always" : "auto";
@@ -1935,63 +1683,6 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 	});
 }
 
-async function performBrowserTransaction(params: ActParams, actions: UiAction[], signal?: AbortSignal): Promise<AgentToolResult<BrowserObservationDetails>> {
-	const contextId = browserContextForOperation();
-	if (!contextId) throw new Error("Browser transaction requires a browser observation state.");
-	const baseSnapshot = operationState().browserSnapshot;
-	if (!baseSnapshot) throw new Error("Browser transaction requires a complete base observation.");
-	const baseView = { stateId: baseSnapshot.snapshotId, outline: baseSnapshot.outline };
-	const condition = params.expect ? validateCondition(params.expect) : undefined;
-	if (condition) conditionScopeNode(restoreOutline(baseSnapshot.outline), condition);
-	const prepared = actions.map((action) => {
-		if (!BROWSER_TRANSACTION_ACTIONS.has(action.action)) throw new Error(`Browser transactions do not support '${action.action}'.`);
-		if (action.action === "click" && action.ref && action.button && action.button !== "left") throw new Error("Browser ref clicks support only the left button; use coordinate clicks for right or middle buttons.");
-		const target = browserSnapshotTarget(params.stateId, trimOrUndefined(action.ref));
-		if ((action.action === "press" || action.action === "setText" || (action.action === "click" && action.ref) || (action.action === "typeText" && action.ref)) && !Number.isFinite(target?.backendNodeId)) {
-			throw new Error(`Browser ${action.action} requires an actionable @e ref owned by ${params.stateId}.`);
-		}
-		if (action.ref && (!target || target.contextId !== contextId)) throw new Error(`Browser ${action.action} ref must be owned by ${params.stateId}.`);
-		return { action, target };
-	});
-	return await withBrowserWrite(contextId, async () => {
-		for (const { action, target } of prepared) {
-			let worked = false;
-			if (action.action === "press" || (action.action === "click" && action.ref)) {
-				worked = true;
-				for (let count = 0; count < (action.clickCount ?? 1); count += 1) worked = await cdpClickForContext(contextId, target!.backendNodeId!) && worked;
-			} else if (action.action === "click") {
-				worked = await cdpMouseForContext(contextId, action.x!, action.y!, "mousePressed", action.button ?? "left", action.clickCount ?? 1)
-					&& await cdpMouseForContext(contextId, action.x!, action.y!, "mouseReleased", action.button ?? "left", action.clickCount ?? 1);
-			} else if (action.action === "setText") worked = await cdpTypeForContext(contextId, target!.backendNodeId!, action.text ?? "", true);
-			else if (action.action === "typeText") worked = target?.backendNodeId
-				? await cdpTypeForContext(contextId, target.backendNodeId, action.text ?? "", false)
-				: await cdpTypeFocusedForContext(contextId, action.text ?? "");
-			else if (action.action === "keypress") worked = await cdpKeypressForContext(contextId, action.keys ?? []);
-			else if (action.action === "scroll") worked = await cdpScrollForContext(contextId, toFiniteNumber(action.scrollX, 0), toFiniteNumber(action.scrollY, 0), target?.backendNodeId);
-			else if (action.action === "drag") worked = await cdpDragForContext(contextId, normalizeActionPath(action.path));
-			else if (action.action === "moveMouse") worked = await cdpMouseForContext(contextId, action.x!, action.y!, "mouseMoved");
-			if (!worked) throw new Error("The browser root became unavailable during the action transaction. Observe it again.");
-		}
-		if (condition) {
-			const deadline = Date.now() + condition.timeoutMs;
-			let satisfied = false;
-			do {
-				const snapshot = await cdpSnapshotForContext(contextId);
-				if (!snapshot) throw new Error(`Browser root '${contextId}' is no longer available. Observe it again.`);
-				const present = outlineConditionPresent(restoreOutline(snapshot.outline), condition);
-				satisfied = present !== condition.gone;
-				if (!satisfied) await sleep(100, signal);
-			} while (!satisfied && Date.now() < deadline);
-			if (!satisfied) throw new Error(`The browser action was delivered but its postcondition was not satisfied within ${condition.timeoutMs}ms.`);
-		}
-		return await refreshBrowserSnapshot(contextId, "act_ui", baseView);
-	});
-}
-
-function normalizeActionPath(path: UiAction["path"]): Array<{ x: number; y: number }> {
-	return (path ?? []).map((point) => Array.isArray(point) ? { x: toFiniteNumber(point[0], 0), y: toFiniteNumber(point[1], 0) } : { x: toFiniteNumber(point.x, 0), y: toFiniteNumber(point.y, 0) });
-}
-
 function validateActionTarget(action: UiAction): void {
 	const hasRef = Boolean(trimOrUndefined(action.ref));
 	const hasX = Number.isFinite(action.x);
@@ -2006,166 +1697,12 @@ function validateActionTarget(action: UiAction): void {
 	if (action.clickCount !== undefined && (!Number.isInteger(action.clickCount) || action.clickCount < 1 || action.clickCount > 3)) throw new Error("clickCount must be an integer from 1 to 3.");
 }
 
-async function performAct(params: ActParams, signal?: AbortSignal): Promise<AgentToolResult<ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>> {
+async function performAct(params: ActParams, signal?: AbortSignal): Promise<AgentToolResult<ComputerUseDetails | TerminalDesktopActionDetails>> {
 	const actions = Array.isArray(params.actions) ? params.actions : [];
 	if (actions.length === 0) throw new Error("act_ui.actions must contain at least one action.");
 	if (actions.length > 20) throw new Error("act_ui supports at most 20 actions per transaction.");
 	for (const action of actions) validateActionTarget(action);
-	if (operationState().contextId) return await performBrowserTransaction(params, actions, signal);
 	return await performDesktopTransaction(params, actions, signal);
-}
-
-function managedBrowserExecutableCandidates(browser: "helium" | "chrome"): string[] {
-	const overrideName = browser === "helium" ? "PI_COMPUTER_USE_HELIUM_EXECUTABLE" : "PI_COMPUTER_USE_CHROME_EXECUTABLE";
-	const override = trimOrUndefined(process.env[overrideName]);
-	if (override) return [path.resolve(override)];
-
-	const platformCandidates = browser === "helium"
-		? [
-			process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Helium", "Application", "helium.exe"),
-			process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Helium", "Application", "helium.exe"),
-		]
-		: [
-			process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe"),
-			process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe"),
-			process.env["PROGRAMFILES(X86)"] && path.join(process.env["PROGRAMFILES(X86)"], "Google", "Chrome", "Application", "chrome.exe"),
-		];
-	const pathNames = browser === "helium" ? ["helium.exe"] : ["chrome.exe"];
-	const pathCandidates = (process.env.PATH ?? "")
-		.split(path.delimiter)
-		.filter(Boolean)
-		.flatMap((directory) => pathNames.map((name) => path.join(directory, name)));
-	return [...new Set([...platformCandidates.filter((candidate): candidate is string => Boolean(candidate)), ...pathCandidates])];
-}
-
-async function managedBrowserExecutable(browser: "helium" | "chrome"): Promise<string> {
-	const candidates = managedBrowserExecutableCandidates(browser);
-	for (const candidate of candidates) {
-		try {
-			await access(candidate, fsConstants.X_OK);
-			return candidate;
-		} catch {
-			// Try the next platform-appropriate installation location.
-		}
-	}
-	const overrideName = browser === "helium" ? "PI_COMPUTER_USE_HELIUM_EXECUTABLE" : "PI_COMPUTER_USE_CHROME_EXECUTABLE";
-	if (trimOrUndefined(process.env[overrideName])) {
-		throw new Error(`${browser} executable from ${overrideName} was not found or is not executable: ${candidates[0]}.`);
-	}
-	throw new Error(`${browser} executable was not found. Set ${overrideName} to its absolute path.`);
-}
-
-function freeTcpPort(): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const server = net.createServer();
-		server.on("error", reject);
-		server.listen(0, "127.0.0.1", () => {
-			const address = server.address();
-			const port = typeof address === "object" && address ? address.port : 0;
-			server.close(() => port > 0 ? resolve(port) : reject(new Error("Could not allocate a local CDP port.")));
-		});
-	});
-}
-
-async function waitForCdpPort(port: number, signal?: AbortSignal): Promise<void> {
-	const deadline = Date.now() + MANAGED_BROWSER_READY_TIMEOUT_MS;
-	while (Date.now() < deadline) {
-		if (signal?.aborted) throw new Error("Browser launch was aborted.");
-		try {
-			const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(500) });
-			if (response.ok) return;
-		} catch {
-			// Browser is still starting.
-		}
-		await sleep(200, signal);
-	}
-	throw new Error(`Managed browser did not expose CDP on port ${port} within ${MANAGED_BROWSER_READY_TIMEOUT_MS}ms.`);
-}
-
-// Side effects: starts a Pi-managed browser process, replaces any previous managed browser,
-// and sets PI_COMPUTER_USE_CDP_PORT for subsequent CDP context discovery.
-async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortSignal): Promise<AgentToolResult<BrowserObservationDetails>> {
-	const browser = getComputerUseConfig().managed_browser;
-	const executable = await managedBrowserExecutable(browser);
-	const port = await freeTcpPort();
-	const requestedUrl = trimOrUndefined(params.url);
-	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
-	const url = requestedUrl ?? "about:blank";
-	const profileDir = path.join(os.tmpdir(), `pi-${browser}-cdp-${port}`);
-	disconnectCdp();
-	runtimeState.managedBrowser?.kill("SIGTERM");
-	const args = [
-		`--remote-debugging-port=${port}`,
-		`--user-data-dir=${profileDir}`,
-		"--no-first-run",
-		"--no-default-browser-check",
-		url,
-	];
-	if (runtimeState.previousCdpPort === undefined && runtimeState.managedBrowserCdpPort === undefined) {
-		runtimeState.previousCdpPort = process.env.PI_COMPUTER_USE_CDP_PORT;
-	}
-	const managedBrowser = spawn(executable, args, { stdio: "ignore", detached: false });
-	managedBrowser.unref();
-	runtimeState.managedBrowser = managedBrowser;
-	runtimeState.managedBrowserCdpPort = String(port);
-	process.env.PI_COMPUTER_USE_CDP_PORT = String(port);
-	try {
-		await waitForCdpPort(port, signal);
-	} catch (error) {
-		if (runtimeState.managedBrowser === managedBrowser) {
-			runtimeState.managedBrowser = undefined;
-			managedBrowser.kill("SIGTERM");
-			if (runtimeState.previousCdpPort === undefined) delete process.env.PI_COMPUTER_USE_CDP_PORT;
-			else process.env.PI_COMPUTER_USE_CDP_PORT = runtimeState.previousCdpPort;
-			runtimeState.managedBrowserCdpPort = undefined;
-			runtimeState.previousCdpPort = undefined;
-		}
-		throw error;
-	}
-	const page = (await listCdpPageContexts())[0];
-	if (!page) throw new Error("Managed browser launched without a CDP page context.");
-	const resourceKey = `cdp:${page.targetId}`;
-	const scheduled = await resourceScheduler.read(resourceKey, async () => await cdpSnapshotForContext(page.contextId));
-	if (!scheduled.value) throw new Error("Managed browser page could not be observed after launch.");
-	return browserObservationResult(scheduled.value, resourceKey, scheduled.epoch, "launch_browser");
-}
-
-async function performNavigateBrowser(params: NavigateBrowserParams): Promise<AgentToolResult<BrowserObservationDetails>> {
-	const contextId = browserContextForOperation();
-	const url = trimOrUndefined(params.url);
-	if (!contextId) throw new Error("navigate_browser.stateId must belong to a CDP browser-page observation. Native browser windows use act_ui.");
-	if (!url || !/^https?:\/\//i.test(url)) throw new Error("navigate_browser.url must be an absolute HTTP(S) URL.");
-	const baseSnapshot = operationState().browserSnapshot;
-	if (!baseSnapshot) throw new Error("Browser navigation requires a complete base observation.");
-	return await withBrowserWrite(contextId, async () => {
-		const ok = await cdpNavigateContext(contextId, url);
-		if (!ok) throw new Error(`Browser context '${contextId}' is no longer available. Observe it again.`);
-		return await refreshBrowserSnapshot(contextId, "navigate_browser", { stateId: baseSnapshot.snapshotId, outline: baseSnapshot.outline });
-	});
-}
-
-async function performEvaluateBrowser(params: EvaluateBrowserParams): Promise<AgentToolResult<EvaluateBrowserDetails>> {
-	const contextId = browserContextForOperation();
-	const expression = typeof params.expression === "string" ? params.expression : "";
-	if (!contextId) throw new Error("evaluate_browser.stateId must belong to a browser observation.");
-	if (!expression.trim()) throw new Error("evaluate_browser.expression must be non-empty JavaScript.");
-	const baseSnapshot = operationState().browserSnapshot;
-	if (!baseSnapshot) throw new Error("Browser evaluation requires a complete base observation.");
-	return await withBrowserWrite(contextId, async () => {
-		const result = await cdpEvaluateForContext(contextId, expression);
-		if (!result) throw new Error(`Browser context '${contextId}' is no longer available. Observe it again.`);
-		const successor = await refreshBrowserSnapshot(contextId, "evaluate_browser", { stateId: baseSnapshot.snapshotId, outline: baseSnapshot.outline });
-		const details: EvaluateBrowserDetails = {
-			tool: "evaluate_browser",
-			baseStateId: baseSnapshot.snapshotId,
-			stateId: successor.details.stateId,
-			view: successor.details.view,
-			changes: successor.details.changes,
-			outline: successor.details.outline,
-			renderedOutline: successor.details.renderedOutline,
-		};
-		return { content: [...successor.content, { type: "text", text: `Evaluation value: ${JSON.stringify(result.value)}` }], details };
-	});
 }
 
 async function executeTool<P, T>(ctx: ExtensionContext, params: P, signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
@@ -2208,10 +1745,7 @@ export const executeObserve = makeToolExecutor("observe_ui", performObserve);
 export const executeSearchUi = makeToolExecutor("search_ui", performSearchUi);
 export const executeExpandUi = makeToolExecutor("expand_ui", performExpandUi);
 export const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi);
-export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
-export const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
-export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
-export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
+export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails>("act_ui", performAct);
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	savedStates.clear();

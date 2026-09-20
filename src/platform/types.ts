@@ -202,7 +202,4 @@ export interface ComputerUsePlatformBackend {
 	actBatch?(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
 	readText(args: PlatformReadTextRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformReadTextResponse>;
 	waitFor(args: PlatformWaitForRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformWaitForResponse>;
-	isBrowserApp(appName: string): boolean;
-	isChromeFamilyApp(appName: string): boolean;
-	openBrowserLocation(target: { appName: string }, url: string, signal?: AbortSignal): Promise<boolean>;
 }
