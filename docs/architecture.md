@@ -3,7 +3,7 @@
 `pi-computer-use` exposes one state-scoped interface for desktop UI:
 
 ```text
-find roots → observe one root → search/expand/inspect its state → act from that state
+find roots -> observe one root -> search/expand/inspect its state -> act from that state
 ```
 
 The agent still sees a multi-root forest. `find_roots` returns stable root refs (`@rN`) for desktop windows and transient surfaces. Observing one root produces an immutable element tree whose refs (`@eN`) belong only to that returned `stateId`. Progressive disclosure is unchanged: the first outline is folded, while `search_ui`, `expand_ui`, and `inspect_ui` query the full stored tree.
@@ -13,7 +13,7 @@ The agent still sees a multi-root forest. `find_roots` returns stable root refs 
 Every live request follows one path:
 
 ```text
-load saved state → prepare actions → run → observe → save → show changes
+load saved state -> prepare actions -> run -> observe -> save -> show changes
 ```
 
 The implementation keeps that ownership explicit:

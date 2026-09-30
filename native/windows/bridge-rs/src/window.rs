@@ -63,15 +63,17 @@ pub fn list_windows(store: &mut RefStore, filter_pid: Option<u64>) -> Result<Val
 #[cfg(windows)]
 use std::{thread, time::Duration};
 #[cfg(windows)]
-use windows::core::PWSTR;
+use windows::core::{BOOL, PWSTR};
 #[cfg(windows)]
-use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, RECT, TRUE};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, TRUE};
 #[cfg(windows)]
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 #[cfg(windows)]
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+#[cfg(windows)]
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 #[cfg(windows)]
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 #[cfg(windows)]
@@ -321,12 +323,37 @@ unsafe fn get_process_name_by_pid(pid: u32) -> String {
         .unwrap_or(full_path)
 }
 
+/// Visible frame of a window in physical screen pixels.
+///
+/// `GetWindowRect` includes the invisible resize borders that Windows 10/11
+/// compose around top-level windows, so prefer the DWM extended frame bounds
+/// and fall back to the raw window rect when DWM has no answer.
+#[cfg(windows)]
+pub fn visible_frame_rect(hwnd: HWND) -> RECT {
+    let mut rect = RECT::default();
+    let dwm_ok = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            (&mut rect as *mut RECT).cast(),
+            std::mem::size_of::<RECT>() as u32,
+        )
+    }
+    .is_ok();
+    if dwm_ok && rect.right > rect.left && rect.bottom > rect.top {
+        return rect;
+    }
+    let mut fallback = RECT::default();
+    if unsafe { GetWindowRect(hwnd, &mut fallback) }.is_ok() {
+        fallback
+    } else {
+        RECT::default()
+    }
+}
+
 #[cfg(windows)]
 unsafe fn get_window_bounds_json(hwnd: HWND) -> Value {
-    let mut rect = RECT::default();
-    if GetWindowRect(hwnd, &mut rect).is_err() {
-        return json!({ "x": 0, "y": 0, "width": 0, "height": 0 });
-    }
+    let rect = visible_frame_rect(hwnd);
     json!({
         "x": rect.left,
         "y": rect.top,
@@ -516,6 +543,7 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    #[cfg(not(windows))]
     use crate::error::ErrorCode;
 
     // -- Platform support check (non-Windows) -------------------------------

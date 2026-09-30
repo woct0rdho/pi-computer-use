@@ -70,7 +70,7 @@ pub fn extract_elements_from(
 }
 
 // ---------------------------------------------------------------------------
-// UIA control type → semantic role mapping
+// UIA control type -> semantic role mapping
 //
 // These constants and the mapping function are always compiled because
 // they are exercised by cross-platform unit tests, but on non-Windows the
@@ -215,12 +215,13 @@ mod native {
     };
     use crate::refs::{NativeHandle, RefStore};
 
-    use windows::core::{BSTR, VARIANT};
+    use windows::core::BSTR;
     use windows::Win32::Foundation::*;
     use windows::Win32::System::Com::*;
     use windows::Win32::System::Ole::{
         SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
     };
+    use windows::Win32::System::Variant::VARIANT;
     use windows::Win32::UI::Accessibility::*;
 
     const MAX_ELEMENTS: usize = 200;

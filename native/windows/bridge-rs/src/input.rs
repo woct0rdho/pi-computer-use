@@ -129,7 +129,10 @@ fn invalid(message: impl Into<String>) -> ProtocolError {
 mod native {
     use super::*;
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
-    use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN,
+    };
 
     pub fn act(
         request: &ParsedActRequest,
@@ -153,7 +156,7 @@ mod native {
             }
             "moveMouse" => {
                 let (x, y) = point.ok_or_else(|| invalid("moveMouse requires resolvedPoint"))?;
-                unsafe { SetCursorPos(x, y) }.map_err(input_failed)?;
+                send(&[absolute_move(x, y)])?;
                 ok("unknown", "coordinates", "hid")
             }
             "drag" => {
@@ -305,31 +308,96 @@ mod native {
         }
     }
 
+    /// Absolute mouse move as a single `SendInput` record.
+    ///
+    /// Absolute coordinates in the same input batch as the button events
+    /// avoid the cursor race that a separate `SetCursorPos` call allows.
+    fn absolute_move(x: i32, y: i32) -> INPUT {
+        let (vx, vy, vw, vh) = virtual_screen_bounds();
+        INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: normalize_absolute(x, vx, vw),
+                    dy: normalize_absolute(y, vy, vh),
+                    mouseData: 0,
+                    dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                    ..Default::default()
+                },
+            },
+        }
+    }
+
+    fn virtual_screen_bounds() -> (i32, i32, i32, i32) {
+        unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1),
+            )
+        }
+    }
+
+    /// Map a screen coordinate to the 0..=65535 space used by absolute input.
+    fn normalize_absolute(coord: i32, origin: i32, extent: i32) -> i32 {
+        let span = i64::from(extent).saturating_sub(1).max(1);
+        let relative = (i64::from(coord) - i64::from(origin)).clamp(0, span);
+        (relative * 65535 / span) as i32
+    }
+
+    #[cfg(test)]
+    mod input_tests {
+        use super::*;
+
+        #[test]
+        fn maps_origin_to_zero() {
+            assert_eq!(normalize_absolute(0, 0, 100), 0);
+        }
+
+        #[test]
+        fn maps_last_pixel_to_max() {
+            assert_eq!(normalize_absolute(99, 0, 100), 65535);
+        }
+
+        #[test]
+        fn clamps_coordinates_outside_the_desktop() {
+            assert_eq!(normalize_absolute(-50, 0, 100), 0);
+            assert_eq!(normalize_absolute(500, 0, 100), 65535);
+        }
+
+        #[test]
+        fn respects_a_negative_virtual_desktop_origin() {
+            assert_eq!(normalize_absolute(-1920, -1920, 3840), 0);
+            assert_eq!(normalize_absolute(0, -1920, 3840), 32776);
+        }
+    }
+
     fn click(x: i32, y: i32, button: &str) -> Result<(), ProtocolError> {
-        unsafe { SetCursorPos(x, y) }.map_err(input_failed)?;
         let (down, up) = match button {
             "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
             "middle" => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
             _ => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
         };
-        send(&[mouse(down, 0), mouse(up, 0)])
+        send(&[absolute_move(x, y), mouse(down, 0), mouse(up, 0)])
     }
 
     fn drag(points: &[(i32, i32)]) -> Result<(), ProtocolError> {
         if points.len() < 2 {
             return Err(invalid("drag requires at least two points"));
         }
-        unsafe { SetCursorPos(points[0].0, points[0].1) }.map_err(input_failed)?;
-        send(&[mouse(MOUSEEVENTF_LEFTDOWN, 0)])?;
+        let mut inputs = Vec::with_capacity(points.len() + 2);
+        inputs.push(absolute_move(points[0].0, points[0].1));
+        inputs.push(mouse(MOUSEEVENTF_LEFTDOWN, 0));
         for &(x, y) in &points[1..] {
-            unsafe { SetCursorPos(x, y) }.map_err(input_failed)?;
+            inputs.push(absolute_move(x, y));
         }
-        send(&[mouse(MOUSEEVENTF_LEFTUP, 0)])
+        inputs.push(mouse(MOUSEEVENTF_LEFTUP, 0));
+        send(&inputs)
     }
 
     fn scroll(x: i32, y: i32, dx: f64, dy: f64) -> Result<(), ProtocolError> {
-        unsafe { SetCursorPos(x, y) }.map_err(input_failed)?;
-        let mut inputs = Vec::new();
+        let mut inputs = vec![absolute_move(x, y)];
         if dy != 0.0 {
             inputs.push(mouse(
                 MOUSEEVENTF_WHEEL,
@@ -342,7 +410,7 @@ mod native {
                 (dx * 120.0).round() as i32 as u32,
             ));
         }
-        if inputs.is_empty() {
+        if inputs.len() == 1 {
             return Ok(());
         }
         send(&inputs)

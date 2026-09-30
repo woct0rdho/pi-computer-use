@@ -13,6 +13,7 @@
 		"accessibility"
 	],
 	"license": "MIT",
+	"packageManager": "pnpm@12.8.1",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/injaneity/pi-computer-use.git"
@@ -22,7 +23,8 @@
 	},
 	"homepage": "https://github.com/injaneity/pi-computer-use#readme",
 	"engines": {
-		"node": ">=20.6.0"
+		"node": ">=22.19.0",
+		"pnpm": ">=10"
 	},
 	"files": [
 		"extensions",
@@ -48,7 +50,7 @@
 	"scripts": {
 		"postinstall": "node scripts/setup-helper.mjs --postinstall",
 		"typecheck": "tsc -p tsconfig.json",
-		"test:schema": "node scripts/check-tool-schemas.mjs",
+		"test:schema": "tsx scripts/check-tool-schemas.mjs",
 		"test:invariants": "tsx scripts/check-invariants.mjs",
 		"test:runtime": "tsx scripts/check-runtime-concurrency.mjs",
 		"test:output": "tsx scripts/check-bounded-output.mjs",
@@ -56,7 +58,7 @@
 		"test:platform": "tsx scripts/check-platform.mjs",
 		"test:build-scripts": "node scripts/check-build-scripts.mjs",
 		"test:package-assets": "node scripts/check-package-assets.mjs",
-		"test": "npm run typecheck && npm run test:schema && npm run test:output && npm run test:runtime && npm run test:invariants && npm run test:platform && npm run test:build-scripts",
+		"test": "pnpm run typecheck && pnpm run test:schema && pnpm run test:output && pnpm run test:runtime && pnpm run test:invariants && pnpm run test:platform && pnpm run test:build-scripts",
 		"build:native": "node scripts/build-native.mjs"
 	},
 	"peerDependencies": {

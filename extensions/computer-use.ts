@@ -14,8 +14,21 @@ import {
 	shutdownComputerUseSession,
 } from "../src/bridge.ts";
 import { getLoadedComputerUseConfig, loadComputerUseConfig } from "../src/config.ts";
+import {
+	actUiOutputSchema,
+	expandUiOutputSchema,
+	findRootsOutputSchema,
+	inspectUiOutputSchema,
+	observeUiOutputSchema,
+	readTextOutputSchema,
+	searchUiOutputSchema,
+	waitForOutputSchema,
+} from "../src/schemas.ts";
 
 const stateId = Type.String({ description: "Required state id owning every @e ref used by this operation" });
+const computerUseNamespace = { name: "computer_use", description: "Windows desktop observation and control" };
+const readOnlyAnnotations = { readOnlyHint: true };
+const mutatingAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };
 const point = { x: Type.Number(), y: Type.Number() };
 const mouseButton = Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")]));
 const clickByRef = Type.Object({ action: Type.Literal("click"), ref: Type.String(), button: mouseButton, clickCount: Type.Optional(Type.Number({ minimum: 1, maximum: 3 })) });
@@ -45,6 +58,8 @@ const conditionProperties = {
 const findTool = defineTool({
 	name: "find_roots",
 	label: "Find Roots",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Find a bounded, ranked set of controllable UI roots with refs, geometry, and focus state.",
 	promptSnippet: "Find a target root before observe_ui when needed.",
 	parameters: Type.Object({
@@ -53,12 +68,15 @@ const findTool = defineTool({
 		pid: Type.Optional(Type.Number({ description: "Exact process id" })),
 		kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("popover"), Type.Literal("dialog")], { description: "Exact root kind" })),
 	}),
+	outputSchema: findRootsOutputSchema,
 	execute: executeFind,
 });
 
 const observeTool = defineTool({
 	name: "observe_ui",
 	label: "Observe UI",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Capture the current/frontmost root or one exact @r root and return a bounded UI outline.",
 	promptSnippet: "Primary UI observation tool. Follow with search_ui, expand_ui, inspect_ui, or act_ui.",
 	promptGuidelines: [
@@ -69,12 +87,15 @@ const observeTool = defineTool({
 		root: Type.Optional(Type.String({ description: "Exact @r ref issued by find_roots" })),
 		mode: Type.Optional(Type.Union([Type.Literal("semantic"), Type.Literal("visual"), Type.Literal("fused")], { description: "Observation mode, default fused" })),
 	}),
+	outputSchema: observeUiOutputSchema,
 	execute: executeObserve,
 });
 
 const searchUiTool = defineTool({
 	name: "search_ui",
 	label: "Search UI",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Return a bounded, deterministically ranked search of the cached outline. At least one predicate is required.",
 	promptSnippet: "Find targets not shown in the compact observe_ui output; refine broad searches instead of paging matches.",
 	parameters: Type.Object({
@@ -83,52 +104,68 @@ const searchUiTool = defineTool({
 		capability: Type.Optional(Type.String({ description: "Exact capability, e.g. press", maxLength: 128 })),
 		stateId,
 	}),
+	outputSchema: searchUiOutputSchema,
 	execute: executeSearchUi,
 });
 
 const expandUiTool = defineTool({
 	name: "expand_ui",
 	label: "Expand UI",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Unfold bounded local outline context for one @e ref.",
 	promptSnippet: "Expand a specific ref instead of dumping unrelated UI.",
 	parameters: Type.Object({ ref: Type.String(), depth: Type.Optional(Type.Number({ minimum: 1, maximum: 8, description: "Subtree depth, default 3" })), stateId }),
+	outputSchema: expandUiOutputSchema,
 	execute: executeExpandUi,
 });
 
 const inspectUiTool = defineTool({
 	name: "inspect_ui",
 	label: "Inspect UI",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Inspect one exact outline ref with fields, geometry, capabilities, and annotations.",
 	promptSnippet: "Use when a target's evidence or provenance matters.",
 	parameters: Type.Object({ ref: Type.String(), stateId }),
+	outputSchema: inspectUiOutputSchema,
 	execute: executeInspectUi,
 });
 
 const actTool = defineTool({
 	name: "act_ui",
 	label: "Act",
+	annotations: mutatingAnnotations,
+	namespace: computerUseNamespace,
 	description: "Perform one or more precisely targeted checked actions and return the successor state.",
 	promptSnippet: "Pass dependent click/type steps together and use expect for observable completion.",
 	promptGuidelines: ["After clicking an editable region, omit ref from typeText/keypress so input follows the established focus."],
 	parameters: Type.Object({ stateId, expect: Type.Optional(Type.Object(conditionProperties)), actions: Type.Array(uiAction, { minItems: 1, maxItems: 20 }) }),
+	outputSchema: actUiOutputSchema,
 	execute: executeAct,
 });
 
 const readTextTool = defineTool({
 	name: "read_text",
 	label: "Read Text",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Read a fixed-size page from an @e UI ref or immutable @o truncated-output ref.",
 	promptSnippet: "Use @e with its stateId; @o continuation refs don't need stateId.",
 	parameters: Type.Object({ ref: Type.String(), offset: Type.Optional(Type.Number({ minimum: 0 })), stateId: Type.Optional(stateId) }),
+	outputSchema: readTextOutputSchema,
 	execute: executeReadText,
 });
 
 const waitForTool = defineTool({
 	name: "wait_for",
 	label: "Wait For",
+	annotations: readOnlyAnnotations,
+	namespace: computerUseNamespace,
 	description: "Wait for one scoped UI condition and return the successor state.",
 	promptSnippet: "Use after asynchronous UI changes instead of polling observe_ui.",
 	parameters: Type.Object({ ...conditionProperties, stateId }),
+	outputSchema: waitForOutputSchema,
 	execute: executeWaitFor,
 });
 

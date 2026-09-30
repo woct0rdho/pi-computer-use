@@ -1,6 +1,6 @@
 //! Window and element reference store.
 //!
-//! Maps monotonically increasing display-form references (`@w1`, `@e2`, …)
+//! Maps monotonically increasing display-form references (`@w1`, `@e2`, ...)
 //! to opaque native handles (HWND, UIA element pointer).  Each `State`
 //! should get its own `RefStore` so that references remain scoped to a
 //! single discovery session.

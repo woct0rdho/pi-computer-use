@@ -8,9 +8,11 @@ Open an issue before starting work. Use it to agree on scope, validation, and an
 
 ## Setup
 
+This repository uses pnpm, pinned through the `packageManager` field in `package.json`.
+
 ```bash
-npm install
-npm test
+pnpm install
+pnpm test
 ```
 
 Run this checkout in Pi:
@@ -22,7 +24,7 @@ pi --no-extensions -e .
 If you change native code, rebuild the helper:
 
 ```bash
-npm run build:native
+pnpm run build:native
 ```
 
 The helper is installed per user to:
@@ -36,8 +38,8 @@ The helper is installed per user to:
 Use the smallest check that proves the change:
 
 - Documentation changes: proofread changed files and check touched links or commands.
-- TypeScript or schema changes: run `npm test`.
-- Native helper changes: run `cargo test --locked` in `native/windows/bridge-rs`, then `npm run build:native` and `npm test`.
+- TypeScript or schema changes: run `pnpm test`.
+- Native helper changes: run `cargo test --locked` in `native/windows/bridge-rs`, then `pnpm run build:native` and `pnpm test`.
 - Behavior changes: exercise the registered extension tools against a real Windows app in an interactive desktop session.
 
 ## Commit messages
@@ -59,7 +61,7 @@ refactor(extension): simplify public tool surface
 Check a range locally with:
 
 ```bash
-npm run test:commits -- <base>..<head>
+pnpm run test:commits -- <base>..<head>
 ```
 
 ## Pull requests

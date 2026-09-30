@@ -160,10 +160,10 @@ export function renderNote(note: WindowNote | undefined): string {
 		const detail = region.detail ? `   (${region.detail.slice(0, 256)})` : "";
 		lines.push(`  ${region.label.slice(0, 512).padEnd(14, " ")} ${region.status}${detail}`);
 	}
-	if (note.regions.length > visible.length) lines.push(`  … ${note.regions.length - visible.length} more note regions; use search_ui or expand_ui`);
+	if (note.regions.length > visible.length) lines.push(`  ... ${note.regions.length - visible.length} more note regions; use search_ui or expand_ui`);
 	const encoded = new TextEncoder().encode(lines.join("\n"));
 	if (encoded.byteLength <= 8 * 1024) return new TextDecoder().decode(encoded);
 	let end = 8 * 1024;
 	while (end > 0 && (encoded[end] & 0xc0) === 0x80) end -= 1;
-	return `${new TextDecoder().decode(encoded.subarray(0, end))}\n… note byte budget reached`;
+	return `${new TextDecoder().decode(encoded.subarray(0, end))}\n... note byte budget reached`;
 }

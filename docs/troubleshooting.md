@@ -21,7 +21,7 @@ node scripts/setup-helper.mjs --runtime
 Or rebuild it locally:
 
 ```bash
-npm run build:native
+pnpm run build:native
 node scripts/setup-helper.mjs
 ```
 

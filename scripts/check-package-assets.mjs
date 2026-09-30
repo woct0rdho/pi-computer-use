@@ -23,6 +23,6 @@ console.log("package assets passed");
 async function createTarball() {
 	const { stdout } = await execFileAsync("npm", ["pack", "--ignore-scripts", "--silent"], { encoding: "utf8", maxBuffer: 1024 * 1024 });
 	const filename = stdout.trim().split("\n").reverse().find((line) => line.endsWith(".tgz"));
-	assert.ok(filename, "npm pack did not produce a tarball");
+	assert.ok(filename, "pnpm pack did not produce a tarball");
 	return filename;
 }

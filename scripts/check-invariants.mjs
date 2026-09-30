@@ -181,7 +181,7 @@ check("INV-10 resource-keyed scheduling", () => {
 
 check("INV-11 unified agent contract", () => {
 	const extension = fs.readFileSync(path.join(root, "extensions/computer-use.ts"), "utf8");
-	const tools = [...extension.matchAll(/\bname:\s*"([^"]+)"/g)].map((match) => match[1]);
+	const tools = [...extension.matchAll(/defineTool\(\{\s*name:\s*"([^"]+)"/g)].map((match) => match[1]);
 	const expected = ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for"];
 	assert(JSON.stringify(tools) === JSON.stringify(expected), `unexpected public tool surface: ${tools.join(", ")}`);
 	assert(!extension.includes('executionMode: "sequential"'), "computer-use tools remain globally sequential");

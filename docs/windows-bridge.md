@@ -31,7 +31,7 @@ Observed `@e` refs store UIA RuntimeId and AutomationId metadata. Ref-targeted a
 - `scroll`: `ScrollPattern` where exposed; wheel fallback is raw input and policy-gated.
 - `typeText`, `keypress`, `drag`, `moveMouse`, and coordinate targets remain raw input and report `unknown` unless verified.
 
-`readText` resolves the live element and reads TextPattern → ValuePattern → CurrentName. `waitFor` polls the live UIA subtree at about 150ms intervals.
+`readText` resolves the live element and reads TextPattern -> ValuePattern -> CurrentName. `waitFor` polls the live UIA subtree at about 150ms intervals.
 
 Root deltas are baselined at act time. The helper polls a cheap top-level HWND signature for early settle (`deltaSource: "win-poll"`), then takes short catch-up snapshots before returning the final full before/after diff. If no change is seen before the cap, it returns the full snapshot timeout path (`"snapshot"`).
 
@@ -49,7 +49,7 @@ Response envelope:
 { "protocolVersion": 3, "id": "req_1", "ok": true, "result": { } }
 ```
 
-Diagnostics (`cmd: "diagnostics"`) returns the protocol version and helper process metadata. The TypeScript backend rejects a mismatched version with a “Restart Pi …” error.
+Diagnostics (`cmd: "diagnostics"`) returns the protocol version and helper process metadata. The TypeScript backend rejects a mismatched version with a "Restart Pi ..." error.
 
 ## Remote acceptance notes
 

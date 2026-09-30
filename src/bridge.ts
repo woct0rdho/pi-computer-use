@@ -4,7 +4,7 @@ import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, pr
 import { getComputerUseConfig, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
 import { noteAfterAct, noteFromLook, noteRegionKeyForRef, renderNote, type WindowNote } from "./note.ts";
 import { foldToBudget, graftScopedOutline, nodeByRef, outlineNodeLabel, outlineNodePath, rankedTextMatch, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
-import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput, UI_TEXT_PAGE_CHARS } from "./output.ts";
+import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput, structuredContentFromDetails, UI_TEXT_PAGE_CHARS } from "./output.ts";
 import { AGENT_TOOL_NAMES, type ActParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type FindParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
@@ -498,7 +498,7 @@ function formatWindowLine(window: ListWindowsDetails["windows"][number]): string
 		.join(", ");
 	const frame = `${Math.round(window.framePoints.x)},${Math.round(window.framePoints.y)} ${Math.round(window.framePoints.w)}x${Math.round(window.framePoints.h)}`;
 	const id = window.windowId ? `windowId ${window.windowId}` : window.nativeWindowRef ? `nativeRootRef ${window.nativeWindowRef}` : "unstable root id";
-	return `- ${window.windowRef} ${window.kind} ${window.app} pid ${window.pid} — ${window.windowTitle || "(untitled)"} (z ${window.zOrder}, ${id}, frame ${frame}${flags ? `, ${flags}` : ""})`;
+	return `- ${window.windowRef} ${window.kind} ${window.app} pid ${window.pid} - ${window.windowTitle || "(untitled)"} (z ${window.zOrder}, ${id}, frame ${frame}${flags ? `, ${flags}` : ""})`;
 }
 
 async function getFrontmost(signal?: AbortSignal): Promise<FrontmostResult> {
@@ -918,7 +918,7 @@ async function buildToolResult(
 	// helper-internal lookId here makes a plausible but invalid stateId easy to use.
 	const renderedChanges = useDiff ? renderChanges(transition!.changes) : "";
 	const outlineText = useDiff
-		? `\n\nChanges (${transition!.changedNodeCount}, ${base!.stateId} → ${result.capture.stateId}):\n${renderedChanges || "(no element changes)"}\nUse stateId ${result.capture.stateId} for subsequent actions and queries.`
+		? `\n\nChanges (${transition!.changedNodeCount}, ${base!.stateId} -> ${result.capture.stateId}):\n${renderedChanges || "(no element changes)"}\nUse stateId ${result.capture.stateId} for subsequent actions and queries.`
 		: `\n\nOutline (${folded.nodeCount} nodes, stateId ${result.capture.stateId}${transition?.reason ? `, full view: ${transition.reason}` : ""}${folded.truncated ? ", folded output truncated" : ""}):\n${folded.text}`;
 	const fallbackText = fallbackReason ? `\n\n${fallbackReason.message}` : "";
 	const deltaText = rootDeltaLines(execution).join("\n");
@@ -1331,10 +1331,10 @@ async function performObserve(params: ObserveParams, signal?: AbortSignal): Prom
 	// identity against the resolved request too.
 	if (!matchesObserveSelection(captureResult.target, selection) && !sameRootIdentity(captureResult.target, requestedTarget)) {
 		throw new Error(
-			`Observation target drifted from the requested selection. Requested ${requestedTarget.appName} — ${requestedTarget.windowTitle}, captured ${captureResult.target.appName} — ${captureResult.target.windowTitle}. Call observe_ui again or specify a more exact window title.`,
+			`Observation target drifted from the requested selection. Requested ${requestedTarget.appName} - ${requestedTarget.windowTitle}, captured ${captureResult.target.appName} - ${captureResult.target.windowTitle}. Call observe_ui again or specify a more exact window title.`,
 		);
 	}
-	const summary = `Observed ${mode} ${captureResult.target.windowRef ? `${captureResult.target.windowRef} ` : ""}${captureResult.target.appName} — ${captureResult.target.windowTitle}. Returned the latest outline state.`;
+	const summary = `Observed ${mode} ${captureResult.target.windowRef ? `${captureResult.target.windowRef} ` : ""}${captureResult.target.appName} - ${captureResult.target.windowTitle}. Returned the latest outline state.`;
 	return await buildToolResult("observe_ui", summary, captureResult, executionTrace("look", "stealth"), signal, imageMode);
 }
 
@@ -1611,8 +1611,8 @@ async function terminalDesktopActionResult(
 		error: { code, message },
 	};
 	const result = targetClosed
-		? `The action was delivered, and its source root ${target.appName} — ${target.windowTitle} closed before a successor observation could be captured.`
-		: `The action was delivered, but its source root ${target.appName} — ${target.windowTitle} could not be observed afterward: ${message}`;
+		? `The action was delivered, and its source root ${target.appName} - ${target.windowTitle} closed before a successor observation could be captured.`
+		: `The action was delivered, but its source root ${target.appName} - ${target.windowTitle} could not be observed afterward: ${message}`;
 	return {
 		content: [{ type: "text", text: `${result}\nNo successor state was created. Call find_roots, then observe_ui to continue.` }],
 		details,
@@ -1672,7 +1672,7 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 			for (const action of executedActions) {
 				state.currentNote = noteAfterAct(state.currentNote ?? noteBefore, action.ref, capture.outline, { window: noteWindowForTarget(capture.target), rootDelta: execution.rootDelta });
 			}
-			return await buildToolResult("act_ui", `Executed ${executedActions.length} checked UI action${executedActions.length === 1 ? "" : "s"} in ${target.appName} — ${target.windowTitle}. Returned state ${capture.capture.stateId}.`, capture, execution, signal, state.currentImageMode, baseView);
+			return await buildToolResult("act_ui", `Executed ${executedActions.length} checked UI action${executedActions.length === 1 ? "" : "s"} in ${target.appName} - ${target.windowTitle}. Returned state ${capture.capture.stateId}.`, capture, execution, signal, state.currentImageMode, baseView);
 		} catch (error) {
 			if (signal?.aborted) {
 				clearDesktopOperationState(state);
@@ -1731,7 +1731,10 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
 		ctx: ExtensionContext,
 	): Promise<AgentToolResult<D>> => {
 		try {
-			return applyOutputEnvelope(tool, await executeTool(ctx, params, signal, () => perform(params, signal)));
+			const result = await executeTool(ctx, params, signal, () => perform(params, signal));
+			const structuredContent = structuredContentFromDetails(result.details);
+			const projected = structuredContent === undefined ? result : { ...result, structuredContent };
+			return applyOutputEnvelope(tool, projected);
 		} catch (error) {
 			throw boundToolError(tool, error);
 		}

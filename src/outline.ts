@@ -284,7 +284,7 @@ export function outlineNodePath(node: OutlineNode): string {
 		parts.unshift(displayName(current));
 		current = current.parent;
 	}
-	return parts.join(" ▸ ");
+	return parts.join(" > ");
 }
 
 function countDescendants(node: OutlineNode): { total: number; roles: Map<string, number>; pictureOnly: number } {
@@ -322,7 +322,7 @@ function foldedSummary(node: OutlineNode): string {
 		.map(([role, count]) => `${count} ${plural(count, role)}`);
 	const countText = `${counts.total}: ${roleCounts.join(", ") || "0 children"}`;
 	const scroll = node.scrollExtent ? ` [scrollable ${node.scrollExtent.seen}/${node.scrollExtent.total}]` : "";
-	return ` ▸ (${countText})${scroll}`;
+	return ` > (${countText})${scroll}`;
 }
 
 function annotationText(node: OutlineNode): string {
@@ -393,7 +393,7 @@ export function foldToBudget(outline: Outline, budget: Partial<typeof DEFAULT_BU
 	render(outline.root, 0);
 	if (truncated) {
 		const remaining = Math.max(0, outline.nodes.length - renderedRefs.length);
-		lines.push(`… render budget reached: ${remaining} more nodes not shown; use search_ui or expand_ui(@eN)`);
+		lines.push(`... render budget reached: ${remaining} more nodes not shown; use search_ui or expand_ui(@eN)`);
 	}
 	return {
 		text: lines.join("\n"),

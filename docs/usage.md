@@ -102,7 +102,7 @@ The runtime prefers background semantics when they are credible, verifies the re
 The initial `observe_ui` response is a full folded view. A normal `act_ui` response saves the complete resulting state but renders only its trustworthy changes:
 
 ```text
-Successor diff (1 change, S1 → S2):
+Successor diff (1 change, S1 -> S2):
 ~ @e9 (@e1 > @e9) value="hello"
 Use stateId S2 for subsequent actions and queries.
 ```

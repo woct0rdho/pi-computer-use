@@ -58,6 +58,17 @@ function storeOutput(value: string): StoredOutput {
 	return entry;
 }
 
+/**
+ * Machine-facing result for programmatic callers: tool details without the
+ * rendered outline text, which duplicates data already present as structured
+ * fields. Returns undefined for details that cannot be projected.
+ */
+export function structuredContentFromDetails<T>(details: T): AgentToolResult<T>["structuredContent"] {
+	if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
+	const { renderedOutline: _renderedOutline, ...rest } = details as Record<string, unknown>;
+	return rest as unknown as AgentToolResult<T>["structuredContent"];
+}
+
 function refinementFor(tool: string): string {
 	if (tool === "search_ui") return "use a more selective text, role, or capability predicate";
 	if (tool === "find_roots") return "use a more selective text, app, pid, or kind filter";

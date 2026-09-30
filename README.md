@@ -33,7 +33,7 @@ Computer use is most helpful when the only available interface is the app on scr
 
 - Windows 10 or newer
 - An interactive, unlocked desktop session
-- Node.js 20.6 or newer
+- Node.js 22.19 or newer
 
 Windows support uses the platform accessibility APIs (UI Automation) and does not require any separate permission prompt.
 

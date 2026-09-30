@@ -50,7 +50,7 @@ async function copyIfChanged(sourcePath, destinationPath) {
 	} catch (err) {
 		await fs.rm(tempPath, { force: true }).catch(() => {});
 		if (err.code === "EPERM") {
-			throw new Error(`Cannot update helper at ${destinationPath} — the existing helper process is still running. Close the helper process and re-run this script.`);
+			throw new Error(`Cannot update helper at ${destinationPath} - the existing helper process is still running. Close the helper process and re-run this script.`);
 		}
 		throw err;
 	}
