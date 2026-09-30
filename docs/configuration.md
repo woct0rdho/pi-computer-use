@@ -46,4 +46,4 @@ PI_COMPUTER_USE_DELIVERY_POLICY=foreground
 PI_COMPUTER_USE_WINDOWS_HELPER_PATH=C:\path\to\windows-bridge.exe
 ```
 
-`PI_COMPUTER_USE_HEADLESS=1` prohibits foreground fallback. `PI_COMPUTER_USE_DELIVERY_POLICY` is a debugging input; normal policy belongs in configuration rather than individual model calls.
+`PI_COMPUTER_USE_HEADLESS=1` prohibits foreground fallback. `PI_COMPUTER_USE_DELIVERY_POLICY` is a debugging input. Normal policy belongs in configuration rather than individual model calls.

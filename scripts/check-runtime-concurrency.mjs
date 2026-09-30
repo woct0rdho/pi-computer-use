@@ -13,21 +13,21 @@ states.create("pid:3", 0, { label: "third" });
 assert.equal(states.get(first.stateId), undefined, "bounded state store did not evict oldest state");
 
 const rawLook = (lookId, children) => parseLookResponse({
-	lookId,
-	capturedAt: Date.now() / 1000,
-	window: { windowId: 1, framePoints: { x: 0, y: 0, w: 800, h: 600 }, scaleFactor: 1, isModal: false, role: "AXWindow", subrole: "AXStandardWindow" },
-	outline: { ref: "window", role: "AXWindow", children },
-	timings: {},
+    lookId,
+    capturedAt: Date.now() / 1000,
+    window: { windowId: 1, framePoints: { x: 0, y: 0, w: 800, h: 600 }, scaleFactor: 1, isModal: false, role: "AXWindow", subrole: "AXStandardWindow" },
+    outline: { ref: "window", role: "AXWindow", children },
+    timings: {},
 });
 
 const baseLook = rawLook("look-1", [
-	{ ref: "toolbar", role: "AXToolbar", title: "Toolbar" },
-	{ ref: "editor", role: "AXTextArea", value: "", canSetValue: true, isTextInput: true },
+    { ref: "toolbar", role: "AXToolbar", title: "Toolbar" },
+    { ref: "editor", role: "AXTextArea", value: "", canSetValue: true, isTextInput: true },
 ]);
 const nextLook = rawLook("look-2", [
-	{ ref: "inserted", role: "AXStaticText", value: "Status" },
-	{ ref: "toolbar", role: "AXToolbar", title: "Toolbar" },
-	{ ref: "editor", role: "AXTextArea", value: "hello", canSetValue: true, isTextInput: true },
+    { ref: "inserted", role: "AXStaticText", value: "Status" },
+    { ref: "toolbar", role: "AXToolbar", title: "Toolbar" },
+    { ref: "editor", role: "AXTextArea", value: "hello", canSetValue: true, isTextInput: true },
 ]);
 stabilizeRefs(baseLook.parsedOutline, nextLook.parsedOutline);
 assert.equal(nextLook.parsedOutline.wireRefToRef.get("editor"), baseLook.parsedOutline.wireRefToRef.get("editor"), "successor state did not preserve a confidently matched ref");
@@ -37,8 +37,8 @@ assert(successorDiff.changes.some((change) => change.type === "updated" && chang
 assert(successorDiff.changes.some((change) => change.type === "added" && change.ref === nextLook.parsedOutline.wireRefToRef.get("inserted")), "successor diff omitted the added node");
 
 const regeneratedLook = rawLook("look-3", [
-	{ ref: "toolbar-new", role: "AXToolbar", title: "Toolbar" },
-	{ ref: "editor-new", role: "AXTextArea", value: "updated", canSetValue: true, isTextInput: true },
+    { ref: "toolbar-new", role: "AXToolbar", title: "Toolbar" },
+    { ref: "editor-new", role: "AXTextArea", value: "updated", canSetValue: true, isTextInput: true },
 ]);
 stabilizeRefs(baseLook.parsedOutline, regeneratedLook.parsedOutline);
 const regeneratedEditor = regeneratedLook.parsedOutline.nodes.find((node) => node.wireRef === "editor-new");
@@ -48,11 +48,11 @@ assert.equal(changesBetween(baseLook.parsedOutline, regeneratedLook.parsedOutlin
 const editor = nextLook.parsedOutline.nodes.find((node) => node.wireRef === "editor");
 assert(editor, "editor fixture was not parsed");
 const actionEnv = {
-	headless: false,
-	image: { width: 800, height: 600 },
-	node: (ref) => nodeByRef(nextLook.parsedOutline, ref),
-	center: (node) => ({ x: node.rect?.x ?? 0, y: node.rect?.y ?? 0 }),
-	validatePoint: () => undefined,
+    headless: false,
+    image: { width: 800, height: 600 },
+    node: (ref) => nodeByRef(nextLook.parsedOutline, ref),
+    center: (node) => ({ x: node.rect?.x ?? 0, y: node.rect?.y ?? 0 }),
+    validatePoint: () => undefined,
 };
 const preparedClick = prepareAction({ action: "click", ref: editor.ref }, { currentFocus: false }, actionEnv);
 assert.equal(preparedClick.establishesFocus, true, "editable semantic clicks should establish transaction focus");
@@ -75,33 +75,33 @@ const scheduler = new ResourceScheduler();
 let active = 0;
 let peak = 0;
 const work = async () => {
-	active += 1;
-	peak = Math.max(peak, active);
-	await sleep(25);
-	active -= 1;
+    active += 1;
+    peak = Math.max(peak, active);
+    await sleep(25);
+    active -= 1;
 };
 await Promise.all([
-	scheduler.read("pid:1", work),
-	scheduler.read("pid:2", work),
+    scheduler.read("pid:1", work),
+    scheduler.read("pid:2", work),
 ]);
 assert.equal(peak, 2, "different resources did not overlap");
 
 active = 0;
 peak = 0;
 await Promise.all([
-	scheduler.read("pid:3", work),
-	scheduler.read("pid:3", work),
+    scheduler.read("pid:3", work),
+    scheduler.read("pid:3", work),
 ]);
 assert.equal(peak, 1, "same-resource operations overlapped");
 
 await scheduler.write("pid:4", 0, async () => undefined);
 await assert.rejects(
-	() => scheduler.readAt("pid:4", 0, async () => undefined),
-	(error) => error instanceof StaleResourceStateError,
+    () => scheduler.readAt("pid:4", 0, async () => undefined),
+    (error) => error instanceof StaleResourceStateError,
 );
 await assert.rejects(
-	() => scheduler.write("pid:4", 0, async () => undefined),
-	(error) => error instanceof StaleResourceStateError,
+    () => scheduler.write("pid:4", 0, async () => undefined),
+    (error) => error instanceof StaleResourceStateError,
 );
 
 await scheduler.close();

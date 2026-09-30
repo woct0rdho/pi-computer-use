@@ -92,7 +92,7 @@ use windows::Win32::Graphics::Gdi::{
 #[cfg(windows)]
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 #[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic};
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, PW_RENDERFULLCONTENT};
 
 #[cfg(windows)]
 fn screenshot_impl(
@@ -118,18 +118,49 @@ fn screenshot_impl(
         warnings.push("window_minimized".to_owned());
     }
 
-    // 3. Get the window rect so we know capture dimensions.
-    let (x, y, width, height) = unsafe {
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
+    // 3. Resolve the visible frame and the raw window rect.
+    //
+    // `GetWindowRect` includes the invisible resize borders on Windows 10/11,
+    // while `framePoints` and the image must describe the same visible region.
+    // Capture the full window rect with PrintWindow, then crop to the DWM
+    // frame so pixel coordinates line up with the reported frame.
+    let (x, y, width, height, full, crop) = unsafe {
+        let mut raw = RECT::default();
+        if GetWindowRect(hwnd, &mut raw).is_err() {
             return Err(ProtocolError::new(
                 "Failed to get window bounds",
                 ErrorCode::CaptureFailed,
             ));
         }
-        let w = (rect.right - rect.left).max(0);
-        let h = (rect.bottom - rect.top).max(0);
-        (rect.left, rect.top, w, h)
+        let full_w = (raw.right - raw.left).max(0);
+        let full_h = (raw.bottom - raw.top).max(0);
+        let visible = crate::window::visible_frame_rect(hwnd);
+        let mut vis_w = (visible.right - visible.left).max(0);
+        let mut vis_h = (visible.bottom - visible.top).max(0);
+        let (mut vis_x, mut vis_y, mut crop_x, mut crop_y) = (
+            visible.left,
+            visible.top,
+            (visible.left - raw.left).max(0),
+            (visible.top - raw.top).max(0),
+        );
+        if vis_w == 0 || vis_h == 0 || full_w == 0 || full_h == 0 {
+            // DWM has no visible frame (or the window is collapsed): fall back
+            // to the raw window rect so capture still returns complete data.
+            vis_x = raw.left;
+            vis_y = raw.top;
+            vis_w = full_w;
+            vis_h = full_h;
+            crop_x = 0;
+            crop_y = 0;
+        }
+        (
+            vis_x,
+            vis_y,
+            vis_w,
+            vis_h,
+            (raw.left, raw.top, full_w, full_h),
+            (crop_x, crop_y, vis_w, vis_h),
+        )
     };
 
     if width == 0 || height == 0 {
@@ -153,10 +184,10 @@ fn screenshot_impl(
 
     // 4. GDI capture (unsafe FFI block).
     // SAFETY: All GDI objects are created and destroyed within this
-    // function.  Object lifetimes follow the Acquire → Use → Release
+    // function.  Object lifetimes follow the Acquire -> Use -> Release
     // pattern with proper cleanup on every error path.
     let (png_base64, output_width, output_height) =
-        unsafe { gdi_capture_to_base64(hwnd, x, y, width, height, max_dimension) }?;
+        unsafe { gdi_capture_to_base64(hwnd, full.0, full.1, full.2, full.3, crop, max_dimension) }?;
 
     let state_id = StateId::fresh("s");
 
@@ -200,18 +231,19 @@ unsafe fn gdi_capture_to_base64(
     window_y: i32,
     width: i32,
     height: i32,
+    crop: (i32, i32, i32, i32),
     max_dimension: Option<u32>,
 ) -> Result<(String, u32, u32), ProtocolError> {
     // Acquire the window DC.
-    let hdc_window = GetDC(hwnd);
+    let hdc_window = GetDC(Some(hwnd));
     if hdc_window.is_invalid() {
         return Err(ProtocolError::new("GetDC failed", ErrorCode::CaptureFailed));
     }
 
     // Create a compatible memory DC.
-    let hdc_mem = CreateCompatibleDC(hdc_window);
+    let hdc_mem = CreateCompatibleDC(Some(hdc_window));
     if hdc_mem.is_invalid() {
-        ReleaseDC(hwnd, hdc_window);
+        ReleaseDC(Some(hwnd), hdc_window);
         return Err(ProtocolError::new(
             "CreateCompatibleDC failed",
             ErrorCode::CaptureFailed,
@@ -222,7 +254,7 @@ unsafe fn gdi_capture_to_base64(
     let hbitmap = CreateCompatibleBitmap(hdc_window, width, height);
     if hbitmap.is_invalid() {
         let _ = DeleteDC(hdc_mem);
-        ReleaseDC(hwnd, hdc_window);
+        ReleaseDC(Some(hwnd), hdc_window);
         return Err(ProtocolError::new(
             "CreateCompatibleBitmap failed",
             ErrorCode::CaptureFailed,
@@ -230,13 +262,14 @@ unsafe fn gdi_capture_to_base64(
     }
 
     // Select bitmap into memory DC (save old to restore later).
-    let old_bitmap = SelectObject(hdc_mem, hbitmap);
+    let old_bitmap = SelectObject(hdc_mem, HGDIOBJ(hbitmap.0));
 
-    // Render the window content using PrintWindow (client area).
-    let pw_ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(0));
+    // Render the window content using PrintWindow. PW_RENDERFULLCONTENT is
+    // required for DirectComposition/GPU-composited surfaces; fall back to the
+    // legacy flag when the window does not support it.
+    let mut pw_ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT));
     if !pw_ok.as_bool() {
-        // PrintWindow can fail for various reasons.  We note it but
-        // continue — the DC might still have partial content.
+        pw_ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(0));
     }
 
     // Prepare BITMAPINFO for GetDIBits (request 32-bit BGRA top-down).
@@ -280,10 +313,10 @@ unsafe fn gdi_capture_to_base64(
         .step_by(97)
         .all(|pixel| pixel[0] < 8 && pixel[1] < 8 && pixel[2] < 8);
     if !pw_ok.as_bool() || dib_ok == 0 || print_window_blank {
-        let screen_dc = GetDC(HWND(std::ptr::null_mut()));
+        let screen_dc = GetDC(None);
         if !screen_dc.is_invalid()
             && BitBlt(
-                hdc_mem, 0, 0, width, height, screen_dc, window_x, window_y, SRCCOPY,
+                hdc_mem, 0, 0, width, height, Some(screen_dc), window_x, window_y, SRCCOPY,
             )
             .is_ok()
         {
@@ -298,7 +331,7 @@ unsafe fn gdi_capture_to_base64(
             );
         }
         if !screen_dc.is_invalid() {
-            ReleaseDC(HWND(std::ptr::null_mut()), screen_dc);
+            ReleaseDC(None, screen_dc);
         }
     }
 
@@ -306,7 +339,7 @@ unsafe fn gdi_capture_to_base64(
     SelectObject(hdc_mem, old_bitmap);
     let _ = DeleteObject(HGDIOBJ(hbitmap.0));
     let _ = DeleteDC(hdc_mem);
-    ReleaseDC(hwnd, hdc_window);
+    ReleaseDC(Some(hwnd), hdc_window);
 
     if dib_ok == 0 {
         return Err(ProtocolError::new(
@@ -315,7 +348,10 @@ unsafe fn gdi_capture_to_base64(
         ));
     }
 
-    // Convert BGRA → RGBA (GDI returns B,G,R,A; PNG expects R,G,B,A).
+    // Crop the full-window bitmap to the visible DWM frame region.
+    let (mut bits, width, height) = crop_bgra(bits, width, height, crop);
+
+    // Convert BGRA -> RGBA (GDI returns B,G,R,A; PNG expects R,G,B,A).
     for chunk in bits.chunks_exact_mut(4) {
         chunk.swap(0, 2);
     }
@@ -366,6 +402,34 @@ unsafe fn gdi_capture_to_base64(
 
     // Base64-encode the PNG bytes.
     Ok((BASE64.encode(&png_data), output_width, output_height))
+}
+
+/// Crop a top-down 32-bit BGRA buffer to `(x, y, width, height)`.
+///
+/// Returns the original buffer when the crop is degenerate or covers the
+/// whole image, so callers never lose data to a bad rectangle.
+#[cfg(windows)]
+fn crop_bgra(
+    bits: Vec<u8>,
+    width: i32,
+    height: i32,
+    crop: (i32, i32, i32, i32),
+) -> (Vec<u8>, i32, i32) {
+    let (cx, cy, cw, ch) = crop;
+    let cx = cx.clamp(0, width);
+    let cy = cy.clamp(0, height);
+    let cw = cw.clamp(0, width - cx);
+    let ch = ch.clamp(0, height - cy);
+    if cw == 0 || ch == 0 || (cx == 0 && cy == 0 && cw == width && ch == height) {
+        return (bits, width, height);
+    }
+    let mut cropped = Vec::with_capacity((cw as usize) * (ch as usize) * 4);
+    let row_bytes = (cw as usize) * 4;
+    for row in 0..ch {
+        let start = (((cy + row) as usize) * (width as usize) + cx as usize) * 4;
+        cropped.extend_from_slice(&bits[start..start + row_bytes]);
+    }
+    (cropped, cw, ch)
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +532,39 @@ mod unit_tests {
         assert_eq!(err.code, ErrorCode::TargetNotFound);
     }
 
+    // -- Bitmap cropping ---------------------------------------------------
+
+    #[test]
+    #[cfg(windows)]
+    fn test_crop_bgra_extracts_visible_region() {
+        // 2x2 image, one byte per channel: rows are [0..8) and [8..16).
+        let bits: Vec<u8> = (0u8..16).collect();
+        let (cropped, w, h) = crop_bgra(bits, 2, 2, (1, 0, 1, 2));
+        assert_eq!((w, h), (1, 2));
+        assert_eq!(cropped, vec![4, 5, 6, 7, 12, 13, 14, 15]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_crop_bgra_clamps_to_bitmap_bounds() {
+        let bits: Vec<u8> = (0u8..16).collect();
+        let (cropped, w, h) = crop_bgra(bits, 2, 2, (1, 1, 99, 99));
+        assert_eq!((w, h), (1, 1));
+        assert_eq!(cropped, vec![12, 13, 14, 15]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_crop_bgra_passes_through_full_or_degenerate_rects() {
+        let bits: Vec<u8> = (0u8..16).collect();
+        let (full, w, h) = crop_bgra(bits.clone(), 2, 2, (0, 0, 2, 2));
+        assert_eq!((w, h), (2, 2));
+        assert_eq!(full, bits);
+        let (degenerate, w, h) = crop_bgra(bits.clone(), 2, 2, (5, 5, 3, 3));
+        assert_eq!((w, h), (2, 2));
+        assert_eq!(degenerate, bits);
+    }
+
     // -- Windows-only integration tests ------------------------------------
 
     #[test]
@@ -476,7 +573,7 @@ mod unit_tests {
         // On Windows, verify that each screenshot gets a unique stateId.
         let mut store = RefStore::new();
         // Only works if there's at least one visible HWND.
-        // We use a synthetic handle — the test checks the stateId property
+        // We use a synthetic handle - the test checks the stateId property
         // not the actual capture quality.
         let wref = store.insert_window(NativeHandle::new(0)); // HWND 0 is invalid
 
@@ -490,7 +587,7 @@ mod unit_tests {
             Err(e) => {
                 // In CI / headless environments this will fail with
                 // CaptureFailed because HWND 0 is not a valid window.
-                // That's acceptable — the error path is exercised.
+                // That's acceptable - the error path is exercised.
                 assert_eq!(
                     e.code,
                     ErrorCode::CaptureFailed,

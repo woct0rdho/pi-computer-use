@@ -10,6 +10,7 @@ src/runtime.ts                   Immutable state store and resource scheduler
 src/state.ts                     Saved UI state ownership and restoration
 src/view.ts                      Stable refs and resulting-state change views
 src/outline.ts                   Outline parsing, folding, search, and ref mapping
+src/schemas.ts                   Structured tool-result schemas
 src/note.ts                      Disposable running-note generation
 src/platform/windows/            Windows backend and helper client
 native/windows/bridge-rs/        Windows UI Automation helper (Rust)
@@ -26,7 +27,7 @@ The public tool surface lives in `extensions/computer-use.ts`. Keep it small. In
 Run all static checks:
 
 ```bash
-npm test
+pnpm test
 ```
 
 This runs TypeScript, tool-schema compatibility checks, architecture invariants, and the Windows helper build/install script checks.
@@ -34,7 +35,7 @@ This runs TypeScript, tool-schema compatibility checks, architecture invariants,
 Rebuild the native helper after Rust changes:
 
 ```bash
-npm run build:native
+pnpm run build:native
 ```
 
 Run the native helper unit tests:
@@ -50,15 +51,15 @@ The runtime is state-scoped and outline-first:
 - `observe_ui` returns a folded UI outline and running note.
 - `search_ui`, `expand_ui`, and `inspect_ui` provide progressive disclosure.
 - `act_ui` is the only public desktop action entrypoint.
-- UI observations are immutable records; request-local hydration replaces global current state.
-- Cached queries bypass scheduling; live work is ordered per physical resource.
+- UI observations are immutable records. Request-local hydration replaces global current state.
+- Cached queries bypass scheduling. Live work is ordered per physical resource.
 - The helper owns grounding, preflight, execution, and verification.
 - Removed direct tools such as `screenshot`, `click`, `set_text`, and `computer_actions` should not reappear as public extension tools.
 
 Run invariants after architecture changes:
 
 ```bash
-npm run test:invariants
+pnpm run test:invariants
 ```
 
 ## Native Windows helper

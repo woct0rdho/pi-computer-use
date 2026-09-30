@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyOutputEnvelope, boundToolError, clearStoredOutputs, MODEL_TEXT_MAX_BYTES, readStoredOutput } from "../src/output.ts";
+import { applyOutputEnvelope, boundToolError, clearStoredOutputs, MODEL_TEXT_MAX_BYTES, readStoredOutput, structuredContentFromDetails } from "../src/output.ts";
 import { searchOutlineRanked, serializeOutlineSearchMatch } from "../src/outline.ts";
 
 clearStoredOutputs();
@@ -21,6 +21,12 @@ assert.ok(lineBounded.content[0].text.split("\n").length <= 2_000, "model-facing
 const boundedError = boundToolError("read_text", new Error("x".repeat(100_000)));
 assert.ok(Buffer.byteLength(boundedError.message, "utf8") <= MODEL_TEXT_MAX_BYTES, "tool errors must obey the text ceiling");
 
+const projected = structuredContentFromDetails({ tool: "observe_ui", renderedOutline: "rendered text", outline: { lookId: "l" } });
+assert.equal(projected.tool, "observe_ui", "projection dropped structured fields");
+assert.equal("renderedOutline" in projected, false, "projection must drop the rendered outline text");
+assert.equal(structuredContentFromDetails(undefined), undefined, "undefined details must not project");
+assert.equal(structuredContentFromDetails([1, 2]), undefined, "array details must not project");
+
 const node = (ref, title, role = "button") => ({ ref, role, subrole: "", identifier: "", title, description: "", value: "", actions: [], canPress: true, canFocus: false, canSetValue: false, canScroll: false, canIncrement: false, canDecrement: false, isTextInput: false, focused: false, offscreen: false, pictureOnly: false, truncated: false, text: [], children: [] });
 const root = node("@e1", "root", "window");
 root.children = [node("@e2", "Save"), node("@e3", "Save changes"), node("@e4", "Autosave"), node("@e5", "Svae")];
@@ -32,8 +38,8 @@ assert.equal(ranked.totalMatches, 4);
 const serializedMatch = serializeOutlineSearchMatch(ranked.matches[0]);
 assert.equal("node" in serializedMatch, false, "agent-facing matches must not expose cyclic outline nodes");
 assert.doesNotThrow(
-	() => JSON.stringify({ tool: "wait_for", target: serializedMatch }),
-	"successful wait_for details must be session-serializable",
+    () => JSON.stringify({ tool: "wait_for", target: serializedMatch }),
+    "successful wait_for details must be session-serializable",
 );
 clearStoredOutputs();
 

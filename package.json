@@ -1,5 +1,5 @@
 {
-	"name": "@injaneity/pi-computer-use",
+	"name": "pi-computer-use",
 	"version": "0.5.1",
 	"description": "Pi extension that lets AI agents observe and control Windows apps.",
 	"type": "module",
@@ -13,16 +13,10 @@
 		"accessibility"
 	],
 	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/injaneity/pi-computer-use.git"
-	},
-	"bugs": {
-		"url": "https://github.com/injaneity/pi-computer-use/issues"
-	},
-	"homepage": "https://github.com/injaneity/pi-computer-use#readme",
+	"packageManager": "pnpm",
 	"engines": {
-		"node": ">=20.6.0"
+		"node": ">=22.19.0",
+		"pnpm": ">=10"
 	},
 	"files": [
 		"extensions",
@@ -34,7 +28,6 @@
 		"native/windows/bridge-rs/src",
 		"native/windows/bridge-rs/tests",
 		"prebuilt/windows",
-		"assets/reference/img.jpg",
 		"README.md",
 		"LICENSE",
 		"docs/*.md"
@@ -42,13 +35,12 @@
 	"pi": {
 		"extensions": [
 			"./extensions"
-		],
-		"image": "./assets/reference/img.jpg"
+		]
 	},
 	"scripts": {
 		"postinstall": "node scripts/setup-helper.mjs --postinstall",
 		"typecheck": "tsc -p tsconfig.json",
-		"test:schema": "node scripts/check-tool-schemas.mjs",
+		"test:schema": "tsx scripts/check-tool-schemas.mjs",
 		"test:invariants": "tsx scripts/check-invariants.mjs",
 		"test:runtime": "tsx scripts/check-runtime-concurrency.mjs",
 		"test:output": "tsx scripts/check-bounded-output.mjs",
@@ -56,7 +48,7 @@
 		"test:platform": "tsx scripts/check-platform.mjs",
 		"test:build-scripts": "node scripts/check-build-scripts.mjs",
 		"test:package-assets": "node scripts/check-package-assets.mjs",
-		"test": "npm run typecheck && npm run test:schema && npm run test:output && npm run test:runtime && npm run test:invariants && npm run test:platform && npm run test:build-scripts",
+		"test": "pnpm run typecheck && pnpm run test:schema && pnpm run test:output && pnpm run test:runtime && pnpm run test:invariants && pnpm run test:platform && pnpm run test:build-scripts",
 		"build:native": "node scripts/build-native.mjs"
 	},
 	"peerDependencies": {

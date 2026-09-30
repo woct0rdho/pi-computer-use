@@ -21,7 +21,7 @@ node scripts/setup-helper.mjs --runtime
 Or rebuild it locally:
 
 ```bash
-npm run build:native
+pnpm run build:native
 node scripts/setup-helper.mjs
 ```
 
@@ -46,7 +46,6 @@ The bridge can sometimes reacquire stale accessibility refs by role, label, capa
 ## Coordinates are rejected
 
 Coordinates are image pixels from the latest observed window. They are invalid if:
-
 - the window changed size
 - the target window changed
 - a new observation was captured
@@ -57,7 +56,6 @@ Call `observe_ui` again and retry.
 ## Capture fails
 
 Check that:
-
 - The target app has an open window.
 - The window was not closed between `observe_ui` and `act_ui`.
 - The app is running in an interactive, unlocked desktop session.

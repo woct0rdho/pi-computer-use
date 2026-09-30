@@ -1,11 +1,10 @@
 # Usage
 
 The normal loop is:
-
-1. Find a desktop root.
-2. Observe that root and retain its `stateId`.
-3. Search, expand, or inspect that immutable state.
-4. Act using the same `stateId` and its `@e` refs.
+- Find a desktop root.
+- Observe that root and retain its `stateId`.
+- Search, expand, or inspect that immutable state.
+- Act using the same `stateId` and its `@e` refs.
 
 ## Tools
 
@@ -24,9 +23,9 @@ The normal loop is:
 
 `find_roots` returns roots such as `@r1`. Every desktop window and transient surface participates in that same forest. `observe_ui` returns element refs such as `@e12` and a `stateId`.
 
-Every tool that consumes an `@e` ref also requires its owning `stateId`. A state remains queryable while it is in the bounded store, but a mutation from an old resource epoch is rejected as stale. `act_ui` returns the next usable `stateId`; consume it directly instead of observing again. Observe again only after an uncertain external mutation or state eviction.
+Every tool that consumes an `@e` ref also requires its owning `stateId`. A state remains queryable while it is in the bounded store, but a mutation from an old resource epoch is rejected as stale. `act_ui` returns the next usable `stateId`. Consume it directly instead of observing again. Observe again only after an uncertain external mutation or state eviction.
 
-Truncated textual output receives an immutable session-local ref such as `@o1`. Continue it with `read_text({ ref: "@o1", offset })`; output refs don't use a UI state id. Tool-provided `@o` offsets are UTF-8 byte offsets, while `@e` text offsets count Unicode characters.
+Truncated textual output receives an immutable session-local ref such as `@o1`. Continue it with `read_text({ ref: "@o1", offset })`. Output refs don't use a UI state id. Tool-provided `@o` offsets are UTF-8 byte offsets, while `@e` text offsets count Unicode characters.
 
 Nodes marked `pictureOnly` have visual evidence but no platform accessibility element. Semantic actions cannot target them. Coordinate actions are available only from a current image-bearing desktop state.
 
@@ -40,7 +39,7 @@ expand_ui({ stateId, ref: "@e7", depth: 3 })
 inspect_ui({ stateId, ref: "@e12" })
 ```
 
-`semantic` observation is cheapest, `fused` is the default, and `visual` forces visual text evidence. Search requires at least one of `text`, `role`, or `capability`. It ranks exact, prefix, and substring text before conservative fuzzy matches, returns a fixed top set with the total match count, and asks the caller to refine broad queries. Search can escalate OCR once when the original desktop look omitted it; that refresh is checked against the state's resource epoch.
+`semantic` observation is cheapest, `fused` is the default, and `visual` forces visual text evidence. Search requires at least one of `text`, `role`, or `capability`. It ranks exact, prefix, and substring text before conservative fuzzy matches, returns a fixed top set with the total match count, and asks the caller to refine broad queries. Search can escalate OCR once when the original desktop look omitted it. That refresh is checked against the state's resource epoch.
 
 ## Acting and batching
 
@@ -50,10 +49,7 @@ The public action shape is always transactional:
 act_ui({ stateId, actions: [{ action: "press", ref: "@e12" }] })
 ```
 
-When an action has an observable completion signal, attach it to the same
-transaction. Pi waits through the platform change-notification path and marks
-the execution `didnt` with `postcondition_failed` if the application swallowed
-the delivered event:
+When an action has an observable completion signal, attach it to the same transaction. Pi waits through the platform change-notification path and marks the execution `didnt` with `postcondition_failed` if the application swallowed the delivered event:
 
 ```js
 act_ui({
@@ -63,10 +59,7 @@ act_ui({
 })
 ```
 
-Verification reports `verified`, `preexisting`, or `failed`. A preexisting
-condition means the requested end state holds, but is not evidence that the
-action caused it. Use `ref` for one exact element or `scopeRef` for a subtree;
-role-only conditions must be scoped, and value checks require an exact `ref`.
+Verification reports `verified`, `preexisting`, or `failed`. A preexisting condition means the requested end state holds, but is not evidence that the action caused it. Use `ref` for one exact element or `scopeRef` for a subtree. Role-only conditions must be scoped, and value checks require an exact `ref`.
 
 Batch steps only when the second step does not need to inspect the result of the first:
 
@@ -102,7 +95,7 @@ The runtime prefers background semantics when they are credible, verifies the re
 The initial `observe_ui` response is a full folded view. A normal `act_ui` response saves the complete resulting state but renders only its trustworthy changes:
 
 ```text
-Successor diff (1 change, S1 → S2):
+Successor diff (1 change, S1 -> S2):
 ~ @e9 (@e1 > @e9) value="hello"
 Use stateId S2 for subsequent actions and queries.
 ```
@@ -121,4 +114,4 @@ Every model-visible textual result is limited to 48 KiB or 2,000 lines. Oversize
 
 ## Parallel calls
 
-Pi may issue tool calls concurrently. Cached queries can overlap freely. Live work for different desktop processes can overlap; work for the same physical resource is ordered. Do not intentionally race two mutations derived from the same state: one wins and the other receives a stale-state error by design.
+Pi may issue tool calls concurrently. Cached queries can overlap freely. Live work for different desktop processes can overlap. Work for the same physical resource is ordered. Do not intentionally race two mutations derived from the same state: one wins and the other receives a stale-state error by design.

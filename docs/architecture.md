@@ -3,7 +3,7 @@
 `pi-computer-use` exposes one state-scoped interface for desktop UI:
 
 ```text
-find roots → observe one root → search/expand/inspect its state → act from that state
+find roots -> observe one root -> search/expand/inspect its state -> act from that state
 ```
 
 The agent still sees a multi-root forest. `find_roots` returns stable root refs (`@rN`) for desktop windows and transient surfaces. Observing one root produces an immutable element tree whose refs (`@eN`) belong only to that returned `stateId`. Progressive disclosure is unchanged: the first outline is folded, while `search_ui`, `expand_ui`, and `inspect_ui` query the full stored tree.
@@ -13,7 +13,7 @@ The agent still sees a multi-root forest. `find_roots` returns stable root refs 
 Every live request follows one path:
 
 ```text
-load saved state → prepare actions → run → observe → save → show changes
+load saved state -> prepare actions -> run -> observe -> save -> show changes
 ```
 
 The implementation keeps that ownership explicit:
@@ -41,11 +41,11 @@ flowchart TB
     W --> O["OS UI resources"]
 ```
 
-There is no session-wide current UI. Every call hydrates request-local state from `stateId`; unrelated calls cannot overwrite one another. Stored observations are immutable and bounded, so old refs either resolve to their exact observation or fail clearly after eviction.
+There is no session-wide current UI. Every call hydrates request-local state from `stateId`. Unrelated calls cannot overwrite one another. Stored observations are immutable and bounded, so old refs either resolve to their exact observation or fail clearly after eviction.
 
-The scheduler serializes live operations only when they address the same physical resource. Different desktop processes can run concurrently. Cached outline queries bypass it entirely. Every resource has a monotonically increasing epoch. A mutating call must present the epoch captured by its state; if another write won the race, the stale call is rejected before dispatch.
+The scheduler serializes live operations only when they address the same physical resource. Different desktop processes can run concurrently. Cached outline queries bypass it entirely. Every resource has a monotonically increasing epoch. A mutating call must present the epoch captured by its state. If another write won the race, the stale call is rejected before dispatch.
 
-Desktop scheduling is conservatively keyed by process rather than window because accessibility focus, menus, and physical input can cross window boundaries inside an app. Global physical input remains mutex-protected in the native helper; semantic UIA work can overlap where the platform permits it.
+Desktop scheduling is conservatively keyed by process rather than window because accessibility focus, menus, and physical input can cross window boundaries inside an app. Global physical input remains mutex-protected in the native helper. Semantic UIA work can overlap where the platform permits it.
 
 ## Observation and progressive disclosure
 
@@ -91,19 +91,15 @@ act_ui({
 })
 ```
 
-With a postcondition, the backend waits for the requested text or role to
-appear (or disappear with `gone: true`) before reporting success. It records
-whether the condition was newly verified, already present before delivery, or
-failed. A failed postcondition changes the execution outcome to `didnt`; event
-delivery alone is never treated as semantic success.
+With a postcondition, the backend waits for the requested text or role to appear (or disappear with `gone: true`) before reporting success. It records whether the condition was newly verified, already present before delivery, or failed. A failed postcondition changes the execution outcome to `didnt`. Event delivery alone is never treated as semantic success.
 
 One action is represented by an array of length one. A multi-action transaction is appropriate only when no intermediate observation is needed. The runtime validates one base state, acquires one resource lane, and sends the steps as one native helper transaction. The helper captures one pre-transaction root baseline, executes and verifies steps in order, and stops on the first failed or invalidated step. Partial results include `stoppedAt`, so callers know the exact checked boundary and must re-observe before continuing. The helper performs one final root-delta settle and the bridge produces one final observation. There is no alternate sequential protocol. This is not a mechanism for parallel actions within one UI resource.
 
-The bridge resolves model intent; the backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Editable-region clicks establish foreground focus for following unscoped keyboard steps in the same transaction. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed accessibility value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
+The bridge resolves model intent. The backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Editable-region clicks establish foreground focus for following unscoped keyboard steps in the same transaction. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed accessibility value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
 
-With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, or post raw input. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery; canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed.
+With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, or post raw input. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery. Canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed.
 
-The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`; strict-headless calls retain native transactional batching.
+The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`. Strict-headless calls retain native transactional batching.
 
 ## Successor diffs
 
@@ -113,26 +109,25 @@ Diff rendering falls back to a full folded view when the root identity changes, 
 
 ## Native transports
 
-The Windows line protocol accepts multiple in-flight requests and correlates responses by request id. The helper uses a fixed worker pool and initializes UIA per worker thread, keeps eight immutable native look records, and serializes global physical input. Target focus, bounded occlusion preflight, and HID delivery share that same critical section; another worker cannot change the foreground between validation and delivery. UIA-only batches do not acquire the global physical-input lock, while any batch that may fall back to pointer or keyboard delivery holds it for the complete transaction.
+The Windows line protocol accepts multiple in-flight requests and correlates responses by request id. The helper uses a fixed worker pool and initializes UIA per worker thread, keeps eight immutable native look records, and serializes global physical input. Target focus, bounded occlusion preflight, and HID delivery share that same critical section. Another worker cannot change the foreground between validation and delivery. UIA-only batches do not acquire the global physical-input lock, while any batch that may fall back to pointer or keyboard delivery holds it for the complete transaction.
 
-Windows UIA extraction is bounded. When the native limit omits descendants, the nearest retained ancestors are marked `truncated`; `expand_ui` performs a scoped look and the helper carries forward the untouched refs into the new immutable look record. Windows root deltas combine an event journal with authoritative before/after snapshots. `SetWinEventHook` accelerates settling and retains short-lived root transitions, while snapshots remain the source of truth for persistent state.
+Windows UIA extraction is bounded. When the native limit omits descendants, the nearest retained ancestors are marked `truncated`. `expand_ui` performs a scoped look and the helper carries forward the untouched refs into the new immutable look record. Windows root deltas combine an event journal with authoritative before/after snapshots. `SetWinEventHook` accelerates settling and retains short-lived root transitions, while snapshots remain the source of truth for persistent state.
 
 ## Preventing platform drift
 
 Platform behavior is defined by invariants, not matching source structure. The helper reports an `architectureVersion` and the invariant set it implements. Startup fails closed if the helper omits a required invariant. The TypeScript backend interface and conformance check additionally require the helper to expose the full observation, text ownership, batching, and lifecycle surface.
 
 Changes to the native backend should therefore include three layers of evidence:
+- shared contract tests for request and response semantics.
+- native compilation and deterministic native unit tests.
+- the same black-box behavioral properties on an interactive Windows host.
 
-1. shared contract tests for request and response semantics;
-2. native compilation and deterministic native unit tests;
-3. the same black-box behavioral properties on an interactive Windows host.
-
-State ownership, bounds, progressive disclosure, transaction boundaries, and honest outcomes are contract requirements; the Windows UI Automation, capture, and input mechanisms are implementation details behind the platform-neutral seam.
+State ownership, bounds, progressive disclosure, transaction boundaries, and honest outcomes are contract requirements. The Windows UI Automation, capture, and input mechanisms are implementation details behind the platform-neutral seam.
 
 ## Design constraints
 
 - Preserve the multi-root forest and progressive disclosure.
-- Make state ownership explicit; never depend on a mutable session-wide current UI.
+- Make state ownership explicit. Never depend on a mutable session-wide current UI.
 - Reject stale writes before dispatch using resource epochs.
 - Serialize by physical resource, not by tool name or whole session.
 - Prefer platform semantics as the cheapest credible attempt, then trust verified outcomes over advertised capabilities.
@@ -142,4 +137,4 @@ State ownership, bounds, progressive disclosure, transaction boundaries, and hon
 - Let the backend/helper own action grounding and verification.
 - Keep platform mechanisms behind the platform-neutral seam.
 - Treat batching as one-resource transaction amortization, not a separate execution architecture.
-- Fail closed when an action outcome is uncertain; a later call must observe again.
+- Fail closed when an action outcome is uncertain. A later call must observe again.

@@ -3,85 +3,85 @@ export type ImageMode = "auto" | "always" | "never";
 export type MouseButtonName = "left" | "right" | "middle";
 
 export interface ObserveTargetParams {
-	root?: RootSelector;
+    root?: RootSelector;
 }
 
 export interface FindParams {
-	text?: string;
-	app?: string;
-	pid?: number;
-	/** Filters on the platform's best-effort presentation hint; only window vs transient is guaranteed. */
-	kind?: "window" | "menu" | "popover" | "dialog";
+    text?: string;
+    app?: string;
+    pid?: number;
+    // Filters on the platform's best-effort presentation hint; only window vs transient is guaranteed.
+    kind?: "window" | "menu" | "popover" | "dialog";
 }
 
 export interface StateTargetParams {
-	stateId?: string;
+    stateId?: string;
 }
 
 export interface ObserveParams extends ObserveTargetParams {
-	mode?: "semantic" | "visual" | "fused";
-	/** Internal capture override; not part of the model-facing schema. */
-	readText?: "auto" | "always" | "never";
+    mode?: "semantic" | "visual" | "fused";
+    // Internal capture override; not part of the model-facing schema.
+    readText?: "auto" | "always" | "never";
 }
 
 export interface SearchUiParams extends StateTargetParams {
-	text?: string;
-	role?: string;
-	capability?: string;
+    text?: string;
+    role?: string;
+    capability?: string;
 }
 
 export interface ExpandUiParams extends StateTargetParams {
-	ref: string;
-	depth?: number;
+    ref: string;
+    depth?: number;
 }
 
 export interface InspectUiParams extends StateTargetParams {
-	ref: string;
+    ref: string;
 }
 
 export interface UiCondition {
-	ref?: string;
-	scopeRef?: string;
-	text?: string;
-	role?: string;
-	value?: string;
-	until?: "present" | "absent";
-	timeoutMs?: number;
+    ref?: string;
+    scopeRef?: string;
+    text?: string;
+    role?: string;
+    value?: string;
+    until?: "present" | "absent";
+    timeoutMs?: number;
 }
 
 export interface UiAction {
-	action: "press" | "click" | "setText" | "typeText" | "keypress" | "scroll" | "drag" | "moveMouse";
-	ref?: string;
-	x?: number;
-	y?: number;
-	text?: string;
-	keys?: string[];
-	scrollX?: number;
-	scrollY?: number;
-	path?: Array<{ x: number; y: number } | [number, number]>;
-	button?: MouseButtonName;
-	clickCount?: number;
+    action: "press" | "click" | "setText" | "typeText" | "keypress" | "scroll" | "drag" | "moveMouse";
+    ref?: string;
+    x?: number;
+    y?: number;
+    text?: string;
+    keys?: string[];
+    scrollX?: number;
+    scrollY?: number;
+    path?: Array<{ x: number; y: number } | [number, number]>;
+    button?: MouseButtonName;
+    clickCount?: number;
 }
 
 export interface ActParams extends StateTargetParams {
-	actions: UiAction[];
-	expect?: UiCondition;
+    actions: UiAction[];
+    expect?: UiCondition;
 }
 
 export interface ReadTextParams extends StateTargetParams {
-	ref: string;
-	offset?: number;
+    ref: string;
+    offset?: number;
 }
 
 export interface WaitForParams extends StateTargetParams, UiCondition {}
 
 export const AGENT_TOOL_NAMES = new Set([
-	"find_roots",
-	"read_text",
-	"wait_for",
-	"observe_ui",
-	"search_ui",
-	"expand_ui",
-	"inspect_ui",
-	"act_ui",
+    "find_roots",
+    "read_text",
+    "wait_for",
+    "observe_ui",
+    "search_ui",
+    "expand_ui",
+    "inspect_ui",
+    "act_ui",
 ]);

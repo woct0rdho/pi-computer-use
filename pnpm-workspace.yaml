@@ -1,0 +1,16 @@
+# pnpm settings for this repository.
+#
+# Newly published versions wait out pnpm's default quarantine before they can
+# be installed, except for the first-party Pi packages this extension is built
+# against. Development should track the Pi version users run, so those resolve
+# immediately; everything else keeps the supply-chain delay.
+minimumReleaseAgeExclude:
+  - "@earendil-works/*"
+
+# Build scripts reviewed and denied. esbuild ships its platform binary as an
+# optional dependency, so tsx works without running these; the others are not
+# needed for the test suite.
+allowBuilds:
+  "@google/genai": false
+  esbuild: false
+  protobufjs: false
