@@ -42,14 +42,15 @@ extension tool
 
 `get_window_state` creates a state. `act` and `wait_for` create a successor. Cached queries use the stored outline and do not recapture.
 
-State IDs are process-lifetime. They are not reconstructed from the transcript after a restart. Old IDs fail clearly and the model observes again.
+State IDs are process-local and remain available while their observation is in the bounded 128-entry store. They are not reconstructed from the transcript after a restart. Evicted or missing IDs fail clearly and the model observes again.
 
 ### Scheduling
 
 Live work is ordered per desktop process with `ResourceScheduler`:
 - Cached `get_window_state` queries bypass the scheduler.
 - Reads can overlap for different processes.
-- Writes increment the resource epoch before dispatch.
+- `act` preflights targets, coordinates, key chords, and action shapes before entering the write lane.
+- Writes increment the resource epoch immediately before native dispatch.
 - Stale writes fail before touching the desktop.
 
 ### Successor diffs
@@ -68,7 +69,7 @@ There is no running-note model and no transcript reconstruction.
 ```text
 click        -> press (semantic) or click (coordinates)
 type_text    -> typeText
-press_key    -> keypress
+press_key    -> keypress (supports + chords)
 set_value    -> setText
 scroll       -> scroll
 drag         -> drag
@@ -77,7 +78,7 @@ activate     -> focusWindow
 
 `actions.ts` validates targets, resolves element references, preserves click-established focus, and decides when a failed keyboard action may safely retry in the foreground.
 
-The bridge prefers semantic UIA execution. It escalates to foreground input only when the operation requires it or a side-effect-free keyboard attempt conclusively failed. Pointer actions are never replayed after an ambiguous result.
+The bridge preflights the entire transaction before incrementing the resource epoch, then prefers semantic UIA execution. It escalates to foreground input only when the operation requires it or a side-effect-free keyboard attempt conclusively failed. Pointer actions are never replayed after an ambiguous result. If the target closes or a modal appears, `act` returns `nextWindows` so the model can continue without a blind root search.
 
 ## Native Windows layer
 

@@ -35,7 +35,7 @@ Desktop computer use requires an interactive user session. Run Pi in an unlocked
 
 `headless: true` blocks raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover.
 
-Use semantic `elementIndex` actions from the latest `get_window_state` result. If the workflow needs raw events, disable `headless`.
+Use UIA patterns for `click`, `set_value`, and `scroll` from the latest `get_window_state` result. Actions without a UIA pattern, plus `type_text` and `press_key`, require foreground mode. If the workflow needs raw events or keyboard text, disable `headless`.
 
 ## State or element indexes are stale
 
@@ -67,3 +67,5 @@ If the target is ambiguous, filter `list_apps` and pass the exact returned windo
 list_apps({ app: "notepad++", title: "Untitled" })
 get_window_state({ window, includeText: true })
 ```
+
+If a modal opens or the observed target closes, use the `nextWindows` returned by `act` instead of guessing the replacement window.

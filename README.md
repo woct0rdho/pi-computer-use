@@ -12,7 +12,7 @@ wait_for
 launch_app
 ```
 
-`get_window_state` returns an immutable `stateId`, a compact UIA tree with numeric `elementIndex` values, and optionally a window-relative screenshot. `act` returns an outcome and a successor diff. The returned `stateId` is valid for the next call.
+`get_window_state` returns an immutable `stateId`, a compact UIA tree with numeric `elementIndex` values, and optionally a window-relative screenshot. `act` returns an outcome and a successor diff. The returned `stateId` is valid for the next call. A state-scoped call can omit `window`. With neither `window` nor `stateId`, `get_window_state` observes the foreground window.
 
 No other action tools are needed. The action vocabulary is inside `act`:
 
@@ -49,7 +49,7 @@ act({
 })
 ```
 
-`act` returns a successor `stateId` and a diff. Use that state for the next action. Call `get_window_state` again only when the outcome is `unknown`, the view is `full`, or capture failed.
+`act` returns a successor `stateId` and a diff. Use that state for the next action. Set `includeScreenshot: true` when you need a visual successor. If a modal opens or the target closes, use the returned `nextWindows`. Call `get_window_state` again only when the outcome is `unknown`, the view is `full`, or capture failed.
 
 Coordinates are window-relative screenshot pixels. Use `elementIndex` when the target has a UIA element. Use `x`/`y` for visual targets.
 
@@ -98,7 +98,7 @@ Project config:
 .pi\computer-use.json
 ```
 
-`PI_COMPUTER_USE_HEADLESS=1` forces background-only actions. `act` prefers semantic UIA operations and only escalates to foreground input when necessary.
+`PI_COMPUTER_USE_HEADLESS=1` forces background-only actions. `act` prefers semantic UIA operations and only escalates to foreground input when necessary. Headless mode supports UIA patterns for `click`, `set_value`, and `scroll`. Actions without a UIA pattern and keyboard text input require foreground mode.
 
 ## Development
 

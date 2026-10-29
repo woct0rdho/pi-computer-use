@@ -43,12 +43,12 @@ pnpm run build:native
 - Every action is bound to an immutable `stateId`.
 - Elements are model-facing numeric `elementIndex` values.
 - Coordinates are window-relative screenshot pixels.
-- Cached queries use the full stored outline; no recapture.
+- Cached queries use the full stored outline. No recapture.
 - Successor states return a diff unless identity confidence is low or the change budget is exceeded.
-- `wait_for` uses native UIA waits; never add a polling loop.
+- `wait_for` uses native UIA waits. Never add a polling loop.
 - `launch_app` never interprets shell commands.
 - Do not add browser/CDP surfaces.
-- Do not add a custom JS REPL; use Pi codemode.
+- Do not add a custom JS REPL. Use Pi codemode.
 
 Run `pnpm run test:invariants` after changing the public surface or state model.
 

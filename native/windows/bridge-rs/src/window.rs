@@ -64,7 +64,8 @@ use windows::core::{BOOL, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, TRUE};
 #[cfg(windows)]
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 #[cfg(windows)]
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
@@ -497,7 +498,7 @@ pub fn focus_window(
             let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
         }
         let already_focused = unsafe { GetForegroundWindow() == hwnd };
-        let focused = already_focused || unsafe { SetForegroundWindow(hwnd).as_bool() };
+        let focused = already_focused || ensure_foreground(hwnd.0 as isize).is_ok();
         Ok(json!({ "focused": focused, "alreadyFocused": already_focused }))
     }
 }
@@ -520,12 +521,25 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
         if unsafe { IsIconic(target).as_bool() } {
             let _ = unsafe { ShowWindow(target, SW_RESTORE) };
         }
+        let current_thread = unsafe { GetCurrentThreadId() };
+        let foreground = unsafe { GetForegroundWindow() };
+        let foreground_thread = if foreground.0.is_null() {
+            0
+        } else {
+            unsafe { GetWindowThreadProcessId(foreground, None) }
+        };
+        let attached = foreground_thread != 0 && foreground_thread != current_thread && unsafe {
+            AttachThreadInput(current_thread, foreground_thread, true).as_bool()
+        };
         for _ in 0..4 {
             if unsafe { GetForegroundWindow() == target } {
-                return Ok(());
+                break;
             }
             let _ = unsafe { SetForegroundWindow(target) };
             thread::sleep(Duration::from_millis(20));
+        }
+        if attached {
+            let _ = unsafe { AttachThreadInput(current_thread, foreground_thread, false) };
         }
         if unsafe { GetForegroundWindow() == target } {
             Ok(())

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, prepareAction } from "../src/actions.ts";
+import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, parseKeyChord, prepareAction } from "../src/actions.ts";
 import { nodeByRef, parseLookResponse } from "../src/outline.ts";
 import { ResourceScheduler, StateStore, StaleResourceStateError } from "../src/runtime.ts";
 import { changesBetween, stabilizeRefs } from "../src/view.ts";
@@ -70,6 +70,9 @@ assert.equal(outcomeAfterCheck("unknown", "preexisting"), "unknown", "preexistin
 assert.equal(outcomeAfterCheck("worked", "failed"), "didnt", "failed verification did not override delivery success");
 assert.equal(outcomeAfterObservedValues("didnt", [{ action: "setText", ref: "@e1", text: "saved" }], () => "saved"), "worked", "resulting state did not override stale immediate setText evidence");
 assert.equal(outcomeAfterObservedValues("didnt", [{ action: "setText", ref: "@e1", text: "saved" }], () => "old"), "didnt", "mismatched resulting value incorrectly proved setText worked");
+assert.deepEqual(parseKeyChord("Control+End"), ["Control", "End"], "key chords were not normalized");
+assert.deepEqual(parseKeyChord("Control_L+a"), ["Control", "a"], "X-style modifier aliases were not normalized");
+assert.deepEqual(parseKeyChord("Return"), ["Enter"], "key aliases were not normalized");
 
 const scheduler = new ResourceScheduler();
 let active = 0;

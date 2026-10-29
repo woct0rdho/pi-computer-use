@@ -97,6 +97,7 @@ export const actOutputSchema = Type.Object({
     changes: Type.Optional(Type.Array(changeSchema)),
     accessibility: Type.Optional(accessibilitySchema),
     screenshots: Type.Optional(Type.Array(screenshotSchema)),
+    nextWindows: Type.Optional(Type.Array(windowSchema)),
     error: Type.Optional(errorSchema),
     activation: Type.Optional(activationSchema),
 });

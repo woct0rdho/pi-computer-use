@@ -50,9 +50,53 @@ function scrollDelta(value: unknown): number {
     return Math.max(-10_000, Math.min(10_000, Math.round(toFiniteNumber(value, 0))));
 }
 
+const KEY_ALIASES: Record<string, string> = {
+    alt_l: "Alt",
+    alt_r: "Alt",
+    cmd: "Win",
+    control: "Control",
+    control_l: "Control",
+    control_r: "Control",
+    ctrl: "Control",
+    del: "Delete",
+    down: "Down",
+    esc: "Escape",
+    left: "Left",
+    meta: "Win",
+    option: "Alt",
+    page_down: "PageDown",
+    page_up: "PageUp",
+    return: "Enter",
+    right: "Right",
+    shift_l: "Shift",
+    shift_r: "Shift",
+    spacebar: "Space",
+    super: "Win",
+    up: "Up",
+    win: "Win",
+};
+
+function canonicalKey(value: string): string {
+    const key = value.trim();
+    if (!key) return "";
+    const normalized = key.toLowerCase().replace(/[\s-]+/g, "_");
+    return KEY_ALIASES[normalized] ?? key;
+}
+
+export function parseKeyChord(value: string): string[] {
+    const trimmed = value.trim();
+    if (!trimmed) throw new Error("press_key.key must not be empty.");
+    const parts = trimmed.includes("+") ? trimmed.split("+") : [trimmed];
+    const keys = parts.map(canonicalKey).filter(Boolean);
+    if (keys.length === 0) throw new Error("press_key.key must contain at least one key.");
+    return keys;
+}
+
 function keys(value: unknown): string[] {
     if (!Array.isArray(value) || value.length === 0) throw new Error("keypress.keys must contain at least one key.");
-    return value.map((key) => String(key));
+    const normalized = value.map((key) => canonicalKey(String(key))).filter(Boolean);
+    if (normalized.length === 0) throw new Error("keypress.keys must contain at least one key.");
+    return normalized;
 }
 
 function path(value: EngineAction["path"], env: ActionEnvironment): Array<{ x: number; y: number }> {

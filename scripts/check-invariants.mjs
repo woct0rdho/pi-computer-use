@@ -63,7 +63,10 @@ check("state-scoped successor contract", () => {
 
 check("action engine is consolidated", () => {
     assert(actions.includes("EngineAction") && actions.includes("prepareAction") && actions.includes("canRetryInForeground"), "action engine missing");
-    assert(bridge.includes("dispatchUiTransaction") && bridge.includes("actBatch"), "native batch seam missing");
+    assert(actions.includes("parseKeyChord"), "key chord parser missing");
+    assert(bridge.includes("prepareUiTransaction") && bridge.includes("dispatchUiTransaction") && bridge.includes("actBatch"), "native transaction seam missing");
+    assert(contract.includes("nextWindows"), "act successor windows missing");
+    assert(extension.includes("includeScreenshot"), "act screenshot control missing");
     assert(bridge.includes("executeAct") && bridge.includes("outcomeAfterObservedValues"), "act result reconciliation missing");
     assert(extension.includes("Type.Union([clickAction"), "act action schema is not discriminated");
 });
@@ -82,6 +85,8 @@ check("explicit coordinate/accessibility contract", () => {
     assert(contract.includes("includeText"), "text control missing");
     assert(bridge.includes("ensurePointIsInLookImage"), "coordinate validation missing");
     assert(bridge.includes("windowMatchesTarget"), "window/state binding validation missing");
+    assert(bridge.includes("isListableRoot"), "shell/ghost window filtering missing");
+    assert(contract.includes("window?: WindowRef") && extension.includes("window: Type.Optional(windowRef)"), "state-scoped window should be optional");
 });
 
 check("bounded model-facing output", () => {

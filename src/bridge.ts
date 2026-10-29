@@ -4,6 +4,7 @@ import {
     canRetryInForeground,
     outcomeAfterCheck,
     outcomeAfterObservedValues,
+    parseKeyChord,
     prepareAction,
     type ActionState,
     type EngineAction,
@@ -100,11 +101,13 @@ interface Condition {
 const savedStates = new SavedStates();
 let resourceScheduler = new ResourceScheduler();
 
-const COMMAND_TIMEOUT_MS = 15_000;
+const ACTION_TIMEOUT_MS = 30_000;
 const LOOK_TIMEOUT_MS = 33_000;
 const ACTION_SETTLE_MS = 280;
 const EXPLICIT_IMAGE_MAX_DIMENSION = 1_280;
 const DEFAULT_LIST_LIMIT = 20;
+const MAX_WAIT_MS = 120_000;
+const MIN_LISTABLE_DIMENSION = 2;
 
 function operationState(): OperationState {
     return savedStates.current();
@@ -260,6 +263,69 @@ function publicWindowDetails(target: CurrentTarget): WindowDetails {
     };
 }
 
+const SHELL_WINDOW_CLASSES = new Set([
+    "EdgeUiInputTopWndClass",
+    "Progman",
+    "Shell_TrayWnd",
+    "WorkerW",
+]);
+
+function isListableRoot(root: PlatformRoot): boolean {
+    const { w, h } = root.framePoints;
+    if (!root.isMinimized && w <= MIN_LISTABLE_DIMENSION && h <= MIN_LISTABLE_DIMENSION) return false;
+    const className = String(root.metadata?.className ?? "");
+    const exStyle = Number(root.metadata?.exStyle ?? 0);
+    const untitled = !root.title.trim();
+    if (SHELL_WINDOW_CLASSES.has(className)) return false;
+    if (className === "ApplicationFrameWindow" && root.appName === "explorer" && untitled) return false;
+    if (root.appName === "TextInputHost") return false;
+    if (untitled && (exStyle & 0x80) !== 0) return false;
+    if (untitled && root.kind === "popover" && w < 64 && h < 64) return false;
+    return true;
+}
+
+async function resolveForegroundTarget(signal?: AbortSignal): Promise<ResolvedTarget> {
+    const roots = await currentPlatformBackend.listRoots({}, signal);
+    const listable = roots.filter(isListableRoot);
+    const root = listable.find((candidate) => candidate.isFocused)
+        ?? [...listable].sort((a, b) => a.zOrder - b.zOrder)[0]
+        ?? roots.find((candidate) => candidate.isFocused)
+        ?? roots[0];
+    if (!root) throw new Error("No foreground window is available. Call list_apps.");
+    return toResolvedTarget(root);
+}
+
+async function resolveStateScopedTarget(window: WindowRef | undefined, state: OperationState, signal?: AbortSignal): Promise<ResolvedTarget> {
+    if (state.currentTarget) {
+        if (window) verifyWindow(window, state.currentTarget);
+        return resolvedTargetFromCurrent(state.currentTarget);
+    }
+    if (window) return await resolvePublicWindow(window, signal);
+    return await resolveForegroundTarget(signal);
+}
+
+async function nextWindowsFor(target: CurrentTarget, signal?: AbortSignal): Promise<WindowDetails[]> {
+    const roots = await currentPlatformBackend.listRoots({}, signal);
+    const candidates = roots.filter(isListableRoot);
+    const samePid = candidates.filter((root) => root.pid === target.pid);
+    const focused = candidates.filter((root) => root.isFocused);
+    const ordered = samePid.length > 0 ? [...samePid, ...focused] : focused.length > 0 ? focused : candidates;
+    const seen = new Set<string>();
+    const windows: WindowDetails[] = [];
+    for (const root of ordered) {
+        const identity = windowIdentity(root);
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        windows.push(publicWindowDetails(toResolvedTarget(root)));
+        if (windows.length >= 12) break;
+    }
+    return windows;
+}
+
+function formatWindowLines(windows: WindowDetails[]): string {
+    return windows.map((window) => `- ${window.app} ${JSON.stringify(window.title ?? "")} (${window.id}${window.kind ? `, ${window.kind}` : ""}${window.isMinimized ? ", minimized" : ""}${window.isForeground ? ", foreground" : ""})`).join("\n");
+}
+
 function resolvedTargetFromCurrent(target: CurrentTarget): ResolvedTarget {
     return {
         ...target,
@@ -314,7 +380,9 @@ async function resolvePublicWindow(window: WindowRef, signal?: AbortSignal): Pro
         return root.windowRef === window.id || root.rootRef === window.id;
     });
     const app = normalizeText(window.app);
-    const candidates = byId.length > 0 ? byId : roots.filter((root) => normalizeText(root.appName) === app);
+    const appRoots = roots.filter((root) => normalizeText(root.appName) === app);
+    const listableAppRoots = appRoots.filter(isListableRoot);
+    const candidates = byId.length > 0 ? byId : listableAppRoots.length > 0 ? listableAppRoots : appRoots;
     const match = candidates.find((root) => normalizeText(root.title) === normalizeText(window.title))
         ?? candidates.find((root) => root.isFocused)
         ?? candidates[0];
@@ -514,7 +582,7 @@ async function helperAct(target: ResolvedTarget, action: Exclude<PreparedAction,
         return candidate;
     };
     const textTimeout = "text" in action.params ? action.params.text.length * 25 + 4_000 : 0;
-    const timeoutMs = Math.max(COMMAND_TIMEOUT_MS, textTimeout);
+    const timeoutMs = Math.max(ACTION_TIMEOUT_MS, textTimeout);
     if ((action.usesCurrentFocus || action.needsForeground) && !headless) {
         const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
         const trace = outcomeTrace(foreground, "foreground");
@@ -571,28 +639,28 @@ function prepareUiAction(action: EngineAction, state: ActionState, look: LookRes
     });
 }
 
-async function dispatchUiAction(action: EngineAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal): Promise<ExecutionTrace> {
-    const prepared = prepareUiAction(action, state, look, headless);
-    const trace = await helperAct(target, prepared, headless, signal);
-    if (!headless && (prepared.establishesFocus || (prepared.action === "click" && "x" in prepared.target))) state.currentFocus = true;
-    return trace;
+function prepareUiTransaction(actions: EngineAction[], look: LookResponse, headless: boolean): PreparedAction[] {
+    const actionState: ActionState = { currentFocus: false };
+    return actions.map((action) => {
+        const prepared = prepareUiAction(action, actionState, look, headless);
+        if (prepared.establishesFocus) actionState.currentFocus = true;
+        return prepared;
+    });
 }
 
-async function dispatchUiTransaction(actions: EngineAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal): Promise<ExecutionTrace> {
+async function dispatchUiTransaction(actions: PreparedAction[], target: ResolvedTarget, headless: boolean, signal?: AbortSignal): Promise<ExecutionTrace> {
     if (headless && currentPlatformBackend.actBatch) {
-        const actionState: ActionState = { currentFocus: false };
-        const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true), "ax_only"));
-        const textLength = actions.reduce((sum, action) => sum + (action.text?.length ?? 0), 0);
-        const result = await currentPlatformBackend.actBatch(requests, { signal, timeoutMs: Math.max(COMMAND_TIMEOUT_MS, textLength * 25 + 6_000) });
+        const requests = actions.map((action) => helperActRequest(target, action, "ax_only"));
+        const textLength = actions.reduce((sum, action) => sum + ("text" in action.params ? action.params.text.length : 0), 0);
+        const result = await currentPlatformBackend.actBatch(requests, { signal, timeoutMs: Math.max(ACTION_TIMEOUT_MS, textLength * 25 + 6_000) });
         if (!result.steps || result.steps.length === 0) throw new Error("Native action transaction returned no checked steps.");
         const steps = result.steps.map((step) => outcomeTrace(step, "ax_only"));
         const outcome: ActOutcome = steps.some((step) => step.outcome === "didnt") ? "didnt" : steps.some((step) => step.outcome === "unknown") ? "unknown" : "worked";
         return executionTrace("act", { outcome, rootDelta: result.rootDelta, stoppedAt: result.stoppedAt, actionCount: steps.length, steps });
     }
     const steps: ExecutionTrace[] = [];
-    const actionState: ActionState = { currentFocus: false };
     for (const action of actions) {
-        const step = await dispatchUiAction(action, target, look, headless, actionState, signal);
+        const step = await helperAct(target, action, headless, signal);
         steps.push(step);
         if (step.outcome === "didnt") break;
     }
@@ -601,7 +669,7 @@ async function dispatchUiTransaction(actions: EngineAction[], target: ResolvedTa
 }
 
 function normalizeTimeout(value: unknown, fallback = 10_000): number {
-    return Math.max(100, Math.min(60_000, Math.trunc(typeof value === "number" && Number.isFinite(value) ? value : fallback)));
+    return Math.max(100, Math.min(MAX_WAIT_MS, Math.trunc(typeof value === "number" && Number.isFinite(value) ? value : fallback)));
 }
 
 function conditionFromInput(input: { text?: string; role?: string; elementIndex?: number; until?: "present" | "absent"; timeoutMs?: number }, outline: Outline): Condition {
@@ -662,17 +730,25 @@ function rootDeltaLines(execution: ExecutionTrace): string[] {
     });
 }
 
-function terminalAct(outcome: ActOutcome, error: unknown, window: WindowRef): AgentToolResult<ActResult> {
+async function terminalAct(outcome: ActOutcome, error: unknown, target: CurrentTarget, signal?: AbortSignal): Promise<AgentToolResult<ActResult>> {
     const message = error instanceof Error ? error.message : String(error);
+    let nextWindows: WindowDetails[] | undefined;
+    try {
+        nextWindows = await nextWindowsFor(target, signal);
+    } catch {
+        nextWindows = undefined;
+    }
     const details: ActResult = {
-        window,
+        window: publicWindow(target),
         outcome,
         view: "diff",
+        nextWindows,
         error: { code: "post_action_observation_failed", message },
         activation: { activated: false, raised: false, unminimized: false },
     };
+    const next = nextWindows?.length ? `\nNext windows:\n${formatWindowLines(nextWindows)}` : "\nCall list_apps and get_window_state to continue.";
     return {
-        content: [{ type: "text", text: `Action outcome ${outcome}, but the successor state could not be captured: ${message}\nCall list_apps and get_window_state to continue.` }],
+        content: [{ type: "text", text: `Action outcome ${outcome}, but the successor state could not be captured: ${message}${next}` }],
         details,
     };
 }
@@ -683,8 +759,9 @@ async function performAct(params: ActParams, signal?: AbortSignal): Promise<Agen
     const state = operationState();
     validateStateId(params.stateId);
     const target = resolvedTargetFromCurrent(state.currentTarget!);
-    verifyWindow(params.window, target);
+    if (params.window) verifyWindow(params.window, target);
     const look = currentLookOrThrow();
+    const headless = getComputerUseConfig().headless;
     const baseView = { stateId: state.currentCapture!.stateId, outline: state.currentOutline! };
     const condition = params.expect ? conditionFromInput(params.expect, baseView.outline) : undefined;
     const scopeNode = condition ? conditionScopeNode(baseView.outline, condition) : undefined;
@@ -711,8 +788,8 @@ async function performAct(params: ActParams, signal?: AbortSignal): Promise<Agen
         } else if (action.type === "type_text") {
             engineActions.push({ action: "typeText", ref: action.elementIndex !== undefined ? nodeRefForIndex(baseView.outline, action.elementIndex) : undefined, text: action.text });
         } else if (action.type === "press_key") {
-            if (!action.key.trim()) throw new Error("press_key.key must not be empty.");
-            engineActions.push({ action: "keypress", ref: action.elementIndex !== undefined ? nodeRefForIndex(baseView.outline, action.elementIndex) : undefined, keys: [action.key] });
+            const keys = parseKeyChord(action.key);
+            engineActions.push({ action: "keypress", ref: action.elementIndex !== undefined ? nodeRefForIndex(baseView.outline, action.elementIndex) : undefined, keys });
         } else if (action.type === "set_value") {
             engineActions.push({ action: "setText", ref: nodeRefForIndex(baseView.outline, action.elementIndex), text: action.value });
         } else if (action.type === "scroll") {
@@ -728,17 +805,24 @@ async function performAct(params: ActParams, signal?: AbortSignal): Promise<Agen
     }
 
     if (!engineActions.length && !shouldActivate) throw new Error("act.actions did not contain a performable action.");
+    const preparedActions = prepareUiTransaction(engineActions, look, headless);
+    let activation = { activated: false, raised: false, unminimized: false };
     if (shouldActivate) {
-        await currentPlatformBackend.focusWindow({ pid: target.pid, windowId: target.windowId, rootRef: target.nativeWindowRef }, signal);
+        const focused = await currentPlatformBackend.focusWindow({ pid: target.pid, windowId: target.windowId, rootRef: target.nativeWindowRef }, signal);
+        activation = {
+            activated: Boolean(focused.focused),
+            raised: Boolean(focused.focused),
+            unminimized: Boolean(target.isMinimized && focused.focused),
+        };
     }
 
     return await withWindowWriteLock(target, async () => {
-        const headless = getComputerUseConfig().headless;
-        const execution = engineActions.length
-            ? await dispatchUiTransaction(engineActions, target, look, headless, signal)
-            : executionTrace("act", { outcome: "worked" });
-        const executedActions = engineActions.slice(0, execution.actionCount ?? engineActions.length);
+        let execution: ExecutionTrace | undefined;
         try {
+            execution = preparedActions.length
+                ? await dispatchUiTransaction(preparedActions, target, headless, signal)
+                : executionTrace("act", { outcome: "worked" });
+            const executedActions = engineActions.slice(0, execution.actionCount ?? engineActions.length);
             if (condition) {
                 const beforePresent = conditionPresent(baseView.outline, condition);
                 const desiredWasPreexisting = beforePresent !== condition.gone;
@@ -766,10 +850,13 @@ async function performAct(params: ActParams, signal?: AbortSignal): Promise<Agen
             } else {
                 await sleep(settleMsForExecution(execution), signal);
             }
-            const capture = await captureTarget(target, state, { includeText: true, includeScreenshot: false }, signal);
+            const capture = await captureTarget(target, state, { includeText: true, includeScreenshot: Boolean(params.includeScreenshot) }, signal);
             execution.outcome = outcomeAfterObservedValues(execution.outcome ?? "unknown", executedActions, (ref) => nodeByRef(capture.outline, ref)?.value);
             const transition = changesBetween(baseView.outline, capture.outline);
             const useDiff = !transition.useFullView;
+            const screenshot = params.includeScreenshot ? screenshotView(capture.capture.stateId, capture.look, false) : null;
+            const needsNextWindows = Boolean(execution.rootDelta?.length);
+            const nextWindows = needsNextWindows ? await nextWindowsFor(target, signal).catch(() => undefined) : undefined;
             const details: ActResult = {
                 stateId: capture.capture.stateId,
                 window: publicWindow(target),
@@ -778,20 +865,23 @@ async function performAct(params: ActParams, signal?: AbortSignal): Promise<Agen
                 view: useDiff ? "diff" : "full",
                 changes: useDiff ? transition.changes.map(changeToPublic) : undefined,
                 accessibility: useDiff ? undefined : fullAccessibility(capture.outline),
+                screenshots: screenshot ? [screenshot] : undefined,
+                nextWindows,
                 error: execution.error?.message ? { code: execution.error.code ?? "action_error", message: execution.error.message } : undefined,
-                activation: shouldActivate
-                    ? { activated: true, raised: true, unminimized: false }
-                    : { activated: false, raised: false, unminimized: false },
+                activation,
             };
             const delta = rootDeltaLines(execution);
+            const next = nextWindows?.length ? `Next windows:\n${formatWindowLines(nextWindows)}` : "";
             const summary = `Outcome ${details.outcome}. ${baseView.stateId} -> ${details.stateId}.`;
             const viewText = useDiff
                 ? `${renderChanges(transition.changes) || "(no element changes)"}\nUse stateId ${details.stateId} for the next call.`
                 : details.accessibility?.tree ?? "";
-            return { content: [{ type: "text", text: `${summary}${delta.length ? `\n${delta.join("\n")}` : ""}\n\n${viewText}` }], details };
+            const content: AgentToolResult<ActResult>["content"] = [{ type: "text", text: `${summary}${delta.length ? `\n${delta.join("\n")}` : ""}${next ? `\n${next}` : ""}\n\n${viewText}` }];
+            if (screenshot && capture.look.image) content.push({ type: "image", data: capture.look.image.jpegBase64, mimeType: capture.look.image.mimeType ?? "image/jpeg" });
+            return { content, details };
         } catch (error) {
             if (signal?.aborted) throw error;
-            return terminalAct(execution.outcome ?? "unknown", error, params.window);
+            return await terminalAct(execution?.outcome ?? "unknown", error, target, signal);
         }
     });
 }
@@ -806,9 +896,10 @@ async function performGetWindowState(params: GetWindowStateParams, signal?: Abor
     const state = operationState();
     const includeText = Boolean(params.includeText || params.query || params.elementIndex !== undefined);
     const includeScreenshot = params.includeScreenshot ?? (params.screenshotData ? true : !(params.stateId && !params.refresh));
-    if (params.stateId && !params.refresh) {
+    const needsScreenshot = includeScreenshot && !state.currentLook?.image;
+    if (params.stateId && !params.refresh && !needsScreenshot) {
         validateStateId(params.stateId);
-        verifyWindow(params.window, state.currentTarget!);
+        if (params.window) verifyWindow(params.window, state.currentTarget!);
         return buildStateResult(state.currentTarget!, state, {
             includeText,
             includeScreenshot,
@@ -818,8 +909,8 @@ async function performGetWindowState(params: GetWindowStateParams, signal?: Abor
             depth: params.depth,
         });
     }
-    const target = await resolvePublicWindow(params.window, signal);
-    if (params.stateId) verifyWindow(params.window, target);
+    if (params.stateId) validateStateId(params.stateId);
+    const target = await resolveStateScopedTarget(params.window, state, signal);
     const key = desktopResourceKey(target);
     const capture = (await resourceScheduler.read(key, async (epoch) => {
         state.epoch = epoch;
@@ -841,10 +932,10 @@ async function performWaitFor(params: WaitForParams, signal?: AbortSignal): Prom
     if (params.stateId) validateStateId(params.stateId);
     let target: ResolvedTarget;
     if (state.currentTarget && state.currentCapture && state.currentOutline) {
-        verifyWindow(params.window, state.currentTarget);
+        if (params.window) verifyWindow(params.window, state.currentTarget);
         target = resolvedTargetFromCurrent(state.currentTarget);
     } else {
-        target = await resolvePublicWindow(params.window, signal);
+        target = await resolveStateScopedTarget(params.window, state, signal);
         const key = desktopResourceKey(target);
         await resourceScheduler.read(key, async (epoch) => {
             state.epoch = epoch;
@@ -894,6 +985,7 @@ async function performListApps(params: ListAppsParams, signal?: AbortSignal): Pr
     const appFilter = normalizeText(params.app);
     const titleFilter = normalizeText(params.title);
     const filtered = roots.filter((root) => {
+        if (!isListableRoot(root)) return false;
         if (!includeMinimized && root.isMinimized) return false;
         if (params.pid !== undefined && root.pid !== params.pid) return false;
         if (appFilter && normalizeText(root.appName) !== appFilter) return false;
@@ -914,9 +1006,8 @@ async function performListApps(params: ListAppsParams, signal?: AbortSignal): Pr
         group.windows.push(window);
     }
     const result: ListAppsResult = { apps: [...groups.values()], windows, total, returned: windows.length };
-    const lines = windows.map((window) => `- ${window.app} ${JSON.stringify(window.title ?? "")} (${window.id}${window.kind ? `, ${window.kind}` : ""}${window.isMinimized ? ", minimized" : ""}${window.isForeground ? ", foreground" : ""})`);
     return {
-        content: [{ type: "text", text: `Found ${total} window${total === 1 ? "" : "s"}${total > windows.length ? `, returned ${windows.length}` : ""}.\n${lines.join("\n")}` }],
+        content: [{ type: "text", text: `Found ${total} window${total === 1 ? "" : "s"}${total > windows.length ? `, returned ${windows.length}` : ""}.\n${formatWindowLines(windows)}` }],
         details: result,
     };
 }
@@ -952,7 +1043,7 @@ async function performLaunchApp(params: LaunchAppParams, signal?: AbortSignal): 
     const deadline = Date.now() + waitMs;
     let windows: WindowDetails[] = [];
     while (true) {
-        const roots = await currentPlatformBackend.listRoots({}, signal);
+        const roots = (await currentPlatformBackend.listRoots({}, signal)).filter(isListableRoot);
         const byPid = launchedPid > 0 ? roots.filter((root) => root.pid === launchedPid) : [];
         const byApp = appName ? roots.filter((root) => normalizeText(root.appName) === appName) : [];
         const fresh = roots.filter((root) => !beforeIds.has(windowIdentity(root)));

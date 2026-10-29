@@ -47,7 +47,7 @@ const typeTextAction = Type.Object({
 
 const pressKeyAction = Type.Object({
     type: Type.Literal("press_key"),
-    key: Type.String({ description: "X-style key or chord, e.g. Return, Tab, Control_L+a" }),
+    key: Type.String({ description: "Key or +-chord, e.g. Return, Tab, Control+End" }),
     elementIndex: Type.Optional(elementIndex),
 });
 
@@ -84,7 +84,7 @@ const expectCondition = Type.Object({
     role: Type.Optional(Type.String({ maxLength: 128 })),
     elementIndex: Type.Optional(elementIndex),
     until: Type.Optional(Type.Union([Type.Literal("present"), Type.Literal("absent")])),
-    timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 60_000, description: "Default 10000ms" })),
+    timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 120_000, description: "Default 10000ms" })),
 });
 
 const listAppsTool = defineTool({
@@ -110,14 +110,14 @@ const getWindowStateTool = defineTool({
     label: "Get Window State",
     annotations: { readOnlyHint: true },
     namespace: { name: "computer_use", description: "Windows desktop observation and control" },
-    description: "Observe a window. Return a stateId, folded UIA tree, and optional screenshot. With stateId, query or expand that state without recapturing.",
+    description: "Observe a window. Return a stateId, folded UIA tree, and optional screenshot. With stateId, query or expand that state without recapturing. Omit window with stateId. Omit both to observe the foreground window.",
     promptSnippet: "Observe or query a window.",
     promptGuidelines: [
         "Prefer stateId + query or elementIndex over recapturing.",
         "Coordinates are window-relative screenshot pixels.",
     ],
     parameters: Type.Object({
-        window: windowRef,
+        window: Type.Optional(windowRef),
         stateId: Type.Optional(stateId),
         refresh: Type.Optional(Type.Boolean({ description: "Recapture even when stateId is supplied" })),
         includeText: Type.Optional(Type.Boolean({ description: "Default false. Implied by query or elementIndex" })),
@@ -141,17 +141,19 @@ const actTool = defineTool({
     label: "Act",
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     namespace: { name: "computer_use", description: "Windows desktop observation and control" },
-    description: "Execute a checked action transaction against a stateId. Returns an outcome and successor diff.",
+    description: "Execute a checked action transaction against a stateId. Returns an outcome and successor diff. Omit window when the stateId already owns the target.",
     promptSnippet: "Act, then use the returned stateId.",
     promptGuidelines: [
         "Omit elementIndex from type_text or press_key to keep focus established by a preceding click.",
         "Use the successor stateId. Observe again only when outcome is unknown or view is full.",
+        "Set includeScreenshot for canvas apps or when visual verification is needed.",
     ],
     parameters: Type.Object({
-        window: windowRef,
+        window: Type.Optional(windowRef),
         stateId,
         actions: Type.Array(uiAction, { minItems: 1, maxItems: 20 }),
         expect: Type.Optional(expectCondition),
+        includeScreenshot: Type.Optional(Type.Boolean({ description: "Capture the successor with a screenshot" })),
     }),
     outputSchema: actOutputSchema,
     execute: executeAct,
@@ -162,16 +164,16 @@ const waitForTool = defineTool({
     label: "Wait For",
     annotations: { readOnlyHint: true },
     namespace: { name: "computer_use", description: "Windows desktop observation and control" },
-    description: "Wait for a UI condition and return a successor state.",
+    description: "Wait for a UI condition and return a successor state. Omit window with stateId. Omit both to use the foreground window.",
     promptSnippet: "Wait for a UI condition.",
     parameters: Type.Object({
-        window: windowRef,
+        window: Type.Optional(windowRef),
         stateId: Type.Optional(stateId),
         text: Type.Optional(Type.String({ maxLength: 512 })),
         role: Type.Optional(Type.String({ maxLength: 128 })),
         elementIndex: Type.Optional(elementIndex),
         until: Type.Optional(Type.Union([Type.Literal("present"), Type.Literal("absent")])),
-        timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 60_000, description: "Default 10000ms" })),
+        timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 120_000, description: "Default 10000ms" })),
     }),
     outputSchema: waitForOutputSchema,
     execute: executeWaitFor,

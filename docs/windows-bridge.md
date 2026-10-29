@@ -102,5 +102,5 @@ Override with `PI_COMPUTER_USE_WINDOWS_HELPER_PATH`.
 
 - UIPI/elevated windows cannot be controlled by a non-elevated helper.
 - A non-elevated `launchApp` cannot start elevated targets.
-- Physical input requires the target to become foreground.
+- Physical input requires the target to become foreground. The helper retries and uses thread-input attachment before failing.
 - Background semantic UIA is preferred. Pointer and keyboard input have platform restrictions.

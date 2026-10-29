@@ -30,7 +30,7 @@ Edit the file and reload Pi to apply changes.
 
 Default: `false`
 
-When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover are blocked.
+When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover are blocked. UIA patterns for `click`, `set_value`, and `scroll` still work. Actions without a UIA pattern and keyboard text input such as `type_text` and `press_key` require `headless: false`.
 
 When `false`, `act` prefers verified semantic activation, preserves focus established by editable clicks, and may retry keyboard input in the foreground when a background attempt conclusively produced no value change. Ambiguous pointer actions are never replayed.
 

@@ -44,7 +44,7 @@ export interface ListAppsResult {
 }
 
 export interface GetWindowStateParams {
-    window: WindowRef;
+    window?: WindowRef;
     stateId?: string;
     refresh?: boolean;
     includeText?: boolean;
@@ -155,10 +155,11 @@ export interface ActivateAction {
 export type UiAction = ClickAction | TypeTextAction | PressKeyAction | SetValueAction | ScrollAction | DragAction | ActivateAction;
 
 export interface ActParams {
-    window: WindowRef;
+    window?: WindowRef;
     stateId: string;
     actions: UiAction[];
     expect?: ExpectCondition;
+    includeScreenshot?: boolean;
 }
 
 export interface Verification {
@@ -187,6 +188,7 @@ export interface ActResult {
     changes?: Change[];
     accessibility?: AccessibilityView;
     screenshots?: ScreenshotView[];
+    nextWindows?: WindowDetails[];
     error?: { code: string; message: string };
     activation?: {
         activated: boolean;
@@ -196,7 +198,7 @@ export interface ActResult {
 }
 
 export interface WaitForParams {
-    window: WindowRef;
+    window?: WindowRef;
     stateId?: string;
     text?: string;
     role?: string;
