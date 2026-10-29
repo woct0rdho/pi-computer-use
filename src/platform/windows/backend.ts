@@ -1,6 +1,6 @@
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformReadyState, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformTarget, PlatformWaitForRequest, PlatformWaitForResponse } from "../types.ts";
+import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformFocusWindowResult, PlatformLaunchRequest, PlatformLaunchResponse, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformReadyState, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformTarget, PlatformWaitForRequest, PlatformWaitForResponse } from "../types.ts";
 import { WINDOWS_HELPER_PROTOCOL_VERSION, windowsHelper } from "./helper.ts";
 import { assertPlatformArchitecture } from "../architecture.ts";
 
@@ -45,15 +45,6 @@ function parseRoots(result: unknown): PlatformRoot[] {
     });
 }
 
-function appsFromRoots(roots: PlatformRoot[]): PlatformApp[] {
-    const seen = new Set<number>();
-    return roots.flatMap((root) => {
-        if (!root.pid || seen.has(root.pid)) return [];
-        seen.add(root.pid);
-        return [{ appName: root.appName ?? "Unknown", pid: root.pid, isFrontmost: root.isFocused }];
-    });
-}
-
 function helperAction(request: PlatformActRequest): Record<string, unknown> {
     if (!("focus" in request.target)) return { ...request };
     return { ...request, target: request.target.focus, params: { ...request.params, preserveFocus: true } };
@@ -73,25 +64,19 @@ export const windowsBackend: ComputerUsePlatformBackend = {
     name: "windows",
     shutdown(): void { windowsHelper.dispose(); },
     ensureReady,
-    async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
-        return appsFromRoots(parseRoots(await windowsHelper.command("listRoots", {}, { signal })));
-    },
     async listRoots(query: PlatformRootQuery, signal?: AbortSignal): Promise<PlatformRoot[]> {
         const roots = parseRoots(await windowsHelper.command("listRoots", Number.isFinite(query.pid) ? { pid: Math.trunc(query.pid!) } : {}, { signal }));
         const title = query.title?.trim().toLowerCase();
         return title ? roots.filter((root) => root.title.trim().toLowerCase().includes(title)) : roots;
-    },
-    async getFrontmost(signal?: AbortSignal): Promise<PlatformFrontmostResult> {
-        const roots = parseRoots(await windowsHelper.command("listRoots", {}, { signal }));
-        const focused = roots.find((root) => root.isFocused) ?? roots[0];
-        if (!focused?.pid) throw new Error("No frontmost window was available.");
-        return { appName: focused.appName ?? "Unknown", pid: focused.pid, windowTitle: focused.title, windowId: focused.windowId, rootRef: focused.rootRef };
     },
     async focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult> {
         return await windowsHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target }, { signal });
     },
     async observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse> {
         return parseLookResponse(await windowsHelper.command("look", { ...request.target, baseLookId: request.baseLookId, maxDimension: request.maxDimension, readText: request.readText, scopeRef: request.scopeRef, includeImage: request.includeImage }, options));
+    },
+    async launchApp(request: PlatformLaunchRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformLaunchResponse> {
+        return await windowsHelper.command<PlatformLaunchResponse>("launchApp", { ...request }, options);
     },
     async act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult> {
         return await windowsHelper.command<HelperActResult>("act", helperAction(request), options);

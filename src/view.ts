@@ -1,9 +1,4 @@
-import { serializeOutlineNode, type Outline, type OutlineChange, type OutlineDiff, type OutlineNode, type SerializedOutlineNode } from "./outline.ts";
-
-function numericRef(ref: string): number {
-    const match = /^@e(\d+)$/.exec(ref);
-    return match ? Number(match[1]) : 0;
-}
+import { elementIndexForNode, serializeOutlineNode, type Outline, type OutlineChange, type OutlineDiff, type OutlineNode, type SerializedOutlineNode } from "./outline.ts";
 
 function rebuildIndexes(outline: Outline): void {
     outline.nodes = [];
@@ -38,7 +33,7 @@ function structuralKey(node: OutlineNode): string {
     return parts.join(">");
 }
 
-/** Preserve public refs only when native or structural identity is unambiguous. */
+// Preserve public indexes only when native or structural identity is unambiguous.
 export function stabilizeRefs(base: Outline | undefined, next: Outline): Outline {
     if (!base) return next;
     const reserved = new Set<string>();
@@ -49,7 +44,7 @@ export function stabilizeRefs(base: Outline | undefined, next: Outline): Outline
         const key = structuralKey(node);
         structuralGroups.set(key, [...(structuralGroups.get(key) ?? []), node]);
     }
-    let nextIndex = Math.max(0, ...base.nodes.map((node) => numericRef(node.ref))) + 1;
+    let nextIndex = Math.max(0, ...base.nodes.map((node) => elementIndexForNode(node))) + 1;
     for (const node of next.nodes) {
         const wireStable = node.wireRef ? byWireRef.get(node.wireRef) : undefined;
         const structuralMatches = structuralGroups.get(structuralKey(node)) ?? [];
@@ -135,13 +130,15 @@ function label(node: SerializedOutlineNode): string {
 
 export function renderChanges(changes: OutlineChange[]): string {
     return changes.map((change) => {
-        if (change.type === "added") return `+ ${change.ref}${change.parent ? ` under ${change.parent}` : ""} ${JSON.stringify(label(change.node))}`;
-        if (change.type === "removed") return `- ${change.ref}${change.parent ? ` from ${change.parent}` : ""}`;
+        const index = (ref: string) => /^@e(\d+)$/.exec(ref)?.[1] ?? ref;
+        if (change.type === "added") return `+ ${index(change.ref)}${change.parent ? ` under ${index(change.parent)}` : ""} ${JSON.stringify(label(change.node))}`;
+        if (change.type === "removed") return `- ${index(change.ref)}${change.parent ? ` from ${index(change.parent)}` : ""}`;
         const fields = Object.entries(change.fields).filter(([key]) => !["rect", "text", "actions"].includes(key)).slice(0, 6).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(", ");
         const supplemental = [
             change.fields.text ? `text=${JSON.stringify(change.fields.text.map((item) => item.string))}` : undefined,
             change.fields.actions ? `actions=${JSON.stringify(change.fields.actions)}` : undefined,
         ].filter(Boolean).join(", ");
-        return `~ ${change.ref} (${change.path.join(" > ")}) ${[fields, supplemental].filter(Boolean).join(", ") || "changed"}`;
+        const path = change.path.map((value) => index(value)).join(" > ");
+        return `~ ${index(change.ref)} (${path}) ${[fields, supplemental].filter(Boolean).join(", ") || "changed"}`;
     }).join("\n");
 }

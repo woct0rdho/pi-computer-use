@@ -1,18 +1,30 @@
-import type { MouseButtonName, UiAction } from "./contract.ts";
+import type { MouseButton } from "./contract.ts";
 import type { OutlineNode } from "./outline.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 
 export type ActionTarget = { ref: string } | { x: number; y: number } | { focus: { x: number; y: number } };
 
+export interface EngineAction {
+    action: "press" | "click" | "setText" | "typeText" | "keypress" | "scroll" | "drag";
+    ref?: string;
+    x?: number;
+    y?: number;
+    text?: string;
+    keys?: string[];
+    scrollX?: number;
+    scrollY?: number;
+    path?: Array<{ x: number; y: number }>;
+    button?: MouseButton;
+    clickCount?: number;
+}
+
 export type PreparedAction =
-    | { action: "press" | "click"; target: ActionTarget; params: { button?: MouseButtonName; clickCount?: number }; establishesFocus: boolean; usesCurrentFocus: false; needsForeground: boolean }
+    | { action: "press" | "click"; target: ActionTarget; params: { button?: MouseButton; clickCount?: number }; establishesFocus: boolean; usesCurrentFocus: false; needsForeground: boolean }
     | { action: "setText"; target: ActionTarget; params: { text: string }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
     | { action: "typeText"; target: ActionTarget; params: { text: string }; establishesFocus: false; usesCurrentFocus: boolean; needsForeground: false }
     | { action: "keypress"; target: ActionTarget; params: { keys: string[] }; establishesFocus: false; usesCurrentFocus: boolean; needsForeground: false }
     | { action: "scroll"; target: ActionTarget; params: { scrollX: number; scrollY: number }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
-    | { action: "drag"; target: ActionTarget; params: { path: Array<{ x: number; y: number }> }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
-    | { action: "moveMouse"; target: ActionTarget; params: Record<string, never>; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
-    | { action: "wait"; params: { ms: number }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false };
+    | { action: "drag"; target: ActionTarget; params: { path: Array<{ x: number; y: number }> }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false };
 
 export interface ActionState {
     currentFocus: boolean;
@@ -26,7 +38,7 @@ export interface ActionEnvironment {
     validatePoint(x: number, y: number, label?: string): void;
 }
 
-function mouseButton(value: unknown): MouseButtonName {
+function mouseButton(value: unknown): MouseButton {
     return value === "right" || value === "middle" ? value : "left";
 }
 
@@ -43,17 +55,17 @@ function keys(value: unknown): string[] {
     return value.map((key) => String(key));
 }
 
-function path(value: UiAction["path"], env: ActionEnvironment): Array<{ x: number; y: number }> {
+function path(value: EngineAction["path"], env: ActionEnvironment): Array<{ x: number; y: number }> {
     if (!Array.isArray(value) || value.length < 2) throw new Error("drag.path must contain at least two points.");
     return value.map((point, index) => {
-        const x = Array.isArray(point) ? toFiniteNumber(point[0], NaN) : toFiniteNumber(point?.x, NaN);
-        const y = Array.isArray(point) ? toFiniteNumber(point[1], NaN) : toFiniteNumber(point?.y, NaN);
+        const x = toFiniteNumber(point?.x, NaN);
+        const y = toFiniteNumber(point?.y, NaN);
         env.validatePoint(x, y, `Drag point ${index + 1}`);
         return { x, y };
     });
 }
 
-function nativeTarget(action: UiAction, operation: PreparedAction["action"], env: ActionEnvironment): ActionTarget {
+function nativeTarget(action: EngineAction, operation: PreparedAction["action"], env: ActionEnvironment): ActionTarget {
     if (action.ref?.trim()) {
         const node = env.node(action.ref.trim());
         const semanticClick = operation === "click" || operation === "press";
@@ -89,7 +101,7 @@ function containsEditable(node: OutlineNode): boolean {
     return node.children.some(containsEditable);
 }
 
-export function prepareAction(action: UiAction, state: ActionState, env: ActionEnvironment): PreparedAction {
+export function prepareAction(action: EngineAction, state: ActionState, env: ActionEnvironment): PreparedAction {
     const operation = action.action;
     const usesCurrentFocus = !env.headless && state.currentFocus && !action.ref && (operation === "typeText" || operation === "keypress");
     const target = usesCurrentFocus ? focusedTarget(env) : nativeTarget(action, operation, env);
@@ -104,7 +116,6 @@ export function prepareAction(action: UiAction, state: ActionState, env: ActionE
         case "keypress": return { action: operation, target, params: { keys: keys(action.keys) }, establishesFocus: false, usesCurrentFocus, needsForeground: false };
         case "scroll": return { action: operation, target, params: { scrollX: scrollDelta(action.scrollX), scrollY: scrollDelta(action.scrollY) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
         case "drag": return { action: operation, target, params: { path: path(action.path, env) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
-        case "moveMouse": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
     }
 }
 
@@ -120,7 +131,7 @@ export function outcomeAfterCheck(current: "worked" | "didnt" | "unknown", check
 
 export function outcomeAfterObservedValues(
     current: "worked" | "didnt" | "unknown",
-    actions: UiAction[],
+    actions: EngineAction[],
     valueForRef: (ref: string) => string | undefined,
 ): "worked" | "didnt" | "unknown" {
     if (actions.length === 0 || actions.some((action) => action.action !== "setText" || !action.ref)) return current;

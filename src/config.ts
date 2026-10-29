@@ -6,25 +6,11 @@ export interface ComputerUseConfig {
     headless: boolean;
 }
 
-export interface ComputerUseConfigSource {
-    path: string;
-    exists: boolean;
-    values?: Partial<ComputerUseConfig>;
-    error?: string;
-}
-
-export interface LoadedComputerUseConfig {
-    config: ComputerUseConfig;
-    sources: ComputerUseConfigSource[];
-    env: Partial<ComputerUseConfig>;
-}
-
 const DEFAULT_CONFIG: ComputerUseConfig = {
     headless: false,
 };
 
 let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
-let activeLoadedConfig: LoadedComputerUseConfig = { config: activeConfig, sources: [], env: {} };
 
 function parseBoolean(value: unknown): boolean | undefined {
     if (typeof value === "boolean") return value;
@@ -36,54 +22,33 @@ function parseBoolean(value: unknown): boolean | undefined {
     return undefined;
 }
 
-function normalizePartial(raw: unknown): Partial<ComputerUseConfig> {
-    if (!raw || typeof raw !== "object") return {};
-    const source = (raw as any).computer_use && typeof (raw as any).computer_use === "object" ? (raw as any).computer_use : raw;
-    const out: Partial<ComputerUseConfig> = {};
-    const headless = parseBoolean((source as any).headless);
-    if (headless !== undefined) out.headless = headless;
-    return out;
-}
-
-function readConfigFile(filePath: string): ComputerUseConfigSource {
-    if (!existsSync(filePath)) return { path: filePath, exists: false };
+function readConfigFile(filePath: string): Partial<ComputerUseConfig> {
+    if (!existsSync(filePath)) return {};
     try {
         const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
-        return { path: filePath, exists: true, values: normalizePartial(parsed) };
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+        const headless = parseBoolean((parsed as Record<string, unknown>).headless);
+        return headless === undefined ? {} : { headless };
     } catch (error) {
-        return { path: filePath, exists: true, error: error instanceof Error ? error.message : String(error) };
+        throw new Error(`Invalid pi-computer-use config at ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 function readEnv(): Partial<ComputerUseConfig> {
-    const out: Partial<ComputerUseConfig> = {};
     const headless = parseBoolean(process.env.PI_COMPUTER_USE_HEADLESS);
-    if (headless !== undefined) out.headless = headless;
-    return out;
+    return headless === undefined ? {} : { headless };
 }
 
-export function loadComputerUseConfig(cwd: string): LoadedComputerUseConfig {
-    const sources = [
-        readConfigFile(path.join(getAgentDir(), "extensions", "pi-computer-use.json")),
-        readConfigFile(path.join(cwd, ".pi", "computer-use.json")),
-    ];
-    const env = readEnv();
+export function loadComputerUseConfig(cwd: string): void {
     const config = { ...DEFAULT_CONFIG };
-    for (const source of sources) {
-        if (source.values) Object.assign(config, source.values);
-    }
-    Object.assign(config, env);
+    Object.assign(config, readConfigFile(path.join(getAgentDir(), "extensions", "pi-computer-use.json")));
+    Object.assign(config, readConfigFile(path.join(cwd, ".pi", "computer-use.json")));
+    Object.assign(config, readEnv());
     activeConfig = config;
-    activeLoadedConfig = { config, sources, env };
-    return activeLoadedConfig;
 }
 
 export function getComputerUseConfig(): ComputerUseConfig {
     return activeConfig;
-}
-
-export function getLoadedComputerUseConfig(): LoadedComputerUseConfig {
-    return activeLoadedConfig;
 }
 
 export function isHeadlessMode(): boolean {

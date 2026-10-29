@@ -1,8 +1,6 @@
 use windows_bridge::refs::{NativeHandle, RefStore};
 
-// ---------------------------------------------------------------------------
 // First ref assertions
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_first_window_ref_is_w1() {
@@ -18,9 +16,7 @@ fn test_first_element_ref_is_e1() {
     assert_eq!(eref.to_string(), "@e1");
 }
 
-// ---------------------------------------------------------------------------
 // Refs are state-scoped: independent stores reset counters
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_refs_are_state_scoped() {
@@ -39,9 +35,7 @@ fn test_refs_are_state_scoped() {
     assert_eq!(e2.to_string(), "@e1");
 }
 
-// ---------------------------------------------------------------------------
 // Monotonically increasing refs within the same store
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_window_refs_increment() {
@@ -65,9 +59,7 @@ fn test_element_refs_increment() {
     assert_eq!(e2.to_string(), "@e2");
 }
 
-// ---------------------------------------------------------------------------
 // Retrieve stored native handles by ref
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_retrieve_window_handle() {

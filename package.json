@@ -20,6 +20,7 @@
 	},
 	"files": [
 		"extensions",
+		"skills",
 		"src",
 		"scripts/build-native.mjs",
 		"scripts/setup-helper.mjs",
@@ -35,6 +36,9 @@
 	"pi": {
 		"extensions": [
 			"./extensions"
+		],
+		"skills": [
+			"./skills"
 		]
 	},
 	"scripts": {
@@ -48,7 +52,7 @@
 		"test:platform": "tsx scripts/check-platform.mjs",
 		"test:build-scripts": "node scripts/check-build-scripts.mjs",
 		"test:package-assets": "node scripts/check-package-assets.mjs",
-		"test": "pnpm run typecheck && pnpm run test:schema && pnpm run test:output && pnpm run test:runtime && pnpm run test:invariants && pnpm run test:platform && pnpm run test:build-scripts",
+		"test": "pnpm run typecheck && pnpm run test:schema && pnpm run test:output && pnpm run test:runtime && pnpm run test:invariants && pnpm run test:platform && pnpm run test:build-scripts && pnpm run test:package-assets",
 		"build:native": "node scripts/build-native.mjs"
 	},
 	"peerDependencies": {

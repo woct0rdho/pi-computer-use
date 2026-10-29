@@ -1,140 +1,104 @@
 # Architecture
 
-`pi-computer-use` exposes one state-scoped interface for desktop UI:
+`pi-computer-use` is a Windows-only Pi extension with a five-tool, state-scoped contract:
 
 ```text
-find roots -> observe one root -> search/expand/inspect its state -> act from that state
+list_apps -> get_window_state -> act / wait_for -> successor state
 ```
 
-The agent still sees a multi-root forest. `find_roots` returns stable root refs (`@rN`) for desktop windows and transient surfaces. Observing one root produces an immutable element tree whose refs (`@eN`) belong only to that returned `stateId`. Progressive disclosure is unchanged: the first outline is folded, while `search_ui`, `expand_ui`, and `inspect_ui` query the full stored tree.
+The model-facing surface is deliberately small. Internals keep UIA extraction, capture, input, scheduling, and verification behind it.
 
-## Runtime model
+## Public contract
 
-Every live request follows one path:
-
-```text
-load saved state -> prepare actions -> run -> observe -> save -> show changes
-```
-
-The implementation keeps that ownership explicit:
-
-| Module | Owns |
+| Tool | Contract |
 |---|---|
-| `state.ts` | Saved UI states, request-local state, restoration, and serialization |
-| `actions.ts` | Validation, normalization, target resolution, dependent focus, and safe retry eligibility |
-| `bridge.ts` | Tool coordination and resource scheduling |
-| `view.ts` | Stable public refs and full-versus-changes rendering |
-| `outline.ts` | Parsing and querying complete UI trees |
-| `platform/*` | OS observation, input mechanics, and native protocol translation |
+| `list_apps` | Discover running apps and top-level windows. |
+| `get_window_state` | Capture or query an immutable `stateId`. |
+| `act` | Execute one checked action transaction and return a successor diff. |
+| `wait_for` | Wait for a scoped UI condition and return a successor state. |
+| `launch_app` | Launch an app/URI through the native helper. |
 
-```mermaid
-flowchart TB
-    A["Agent tool calls<br/>Pi may issue them concurrently"] --> C["State-scoped contract<br/>root @r / stateId / element @e"]
-    C --> Q{"Cached or live?"}
-    Q -->|"cached search / expand / inspect"| S["Bounded immutable state store"]
-    Q -->|"observe / act / live read"| R["Resource scheduler"]
-    R --> D1["desktop-pid:123 lane"]
-    R --> D2["desktop-pid:456 lane"]
-    D1 --> P["Platform-neutral backend"]
-    D2 --> P
-    P --> W["Windows UIA/input helper"]
-    W --> O["OS UI resources"]
-```
+All tools declare an `outputSchema`. Codemode scripts receive `structuredContent`. Direct model calls receive compact text and optional images.
 
-There is no session-wide current UI. Every call hydrates request-local state from `stateId`. Unrelated calls cannot overwrite one another. Stored observations are immutable and bounded, so old refs either resolve to their exact observation or fail clearly after eviction.
-
-The scheduler serializes live operations only when they address the same physical resource. Different desktop processes can run concurrently. Cached outline queries bypass it entirely. Every resource has a monotonically increasing epoch. A mutating call must present the epoch captured by its state. If another write won the race, the stale call is rejected before dispatch.
-
-Desktop scheduling is conservatively keyed by process rather than window because accessibility focus, menus, and physical input can cross window boundaries inside an app. Global physical input remains mutex-protected in the native helper. Semantic UIA work can overlap where the platform permits it.
-
-## Observation and progressive disclosure
-
-`observe_ui` asks the selected backend for one look. A desktop look combines root identity, accessibility structure, optional image evidence, OCR boxes when required, and capture metadata.
-
-The bridge stores the complete observation and returns a folded rendering. The state owns its refs:
+## Runtime
 
 ```text
-@r1 desktop window
-  state A (epoch 4)
-    @e1 application
-    @e12 text field
-
-@r8 desktop window
-  state B (epoch 2)
-    @e1 application
-    @e7 button
+extension tool
+  -> state lookup by stateId
+  -> resource scheduler
+  -> platform backend
+  -> windows-bridge.exe
+  -> UIA / WGC / SendInput
 ```
 
-`search_ui` and ordinary inspection are pure cached queries. A live escalation such as OCR or a refreshed truncated region is epoch-checked and resource-scheduled. It cannot silently graft data across a concurrent mutation.
+### State ownership
 
-## Acting and batching
+`SavedStates` stores immutable observations in a bounded `StateStore` (128 entries). One observation is:
+- public `window`
+- internal native `lookId`
+- full UIA `Outline`
+- optional screenshot
+- resource key and epoch
 
-`act_ui` runs one dependent action list:
+`get_window_state` creates a state. `act` and `wait_for` create a successor. Cached queries use the stored outline and do not recapture.
 
-```ts
-act_ui({
-  stateId,
-  actions: [
-    { action: "setText", ref: "@e12", text: "hello" },
-    { action: "press", ref: "@e18" },
-  ],
-})
+State IDs are process-lifetime. They are not reconstructed from the transcript after a restart. Old IDs fail clearly and the model observes again.
+
+### Scheduling
+
+Live work is ordered per desktop process with `ResourceScheduler`:
+- Cached `get_window_state` queries bypass the scheduler.
+- Reads can overlap for different processes.
+- Writes increment the resource epoch before dispatch.
+- Stale writes fail before touching the desktop.
+
+### Successor diffs
+
+After `act`/`wait_for`, the bridge captures a successor, stabilizes element identities with `stabilizeRefs`, and compares it with the base outline:
+- Small trustworthy changes render a diff.
+- Root replacement, low identity confidence, or a large change budget render a full folded tree.
+- The element indexes are numeric and state-scoped.
+
+There is no running-note model and no transcript reconstruction.
+
+## Action execution
+
+`act` converts the public action union into internal `EngineAction` requests:
+
+```text
+click        -> press (semantic) or click (coordinates)
+type_text    -> typeText
+press_key    -> keypress
+set_value    -> setText
+scroll       -> scroll
+drag         -> drag
+activate     -> focusWindow
 ```
 
-Transactions may include a semantic postcondition:
+`actions.ts` validates targets, resolves element references, preserves click-established focus, and decides when a failed keyboard action may safely retry in the foreground.
 
-```ts
-act_ui({
-  stateId,
-  actions: [{ action: "press", ref: "@e9" }],
-  expect: { text: "Saved", timeoutMs: 3000 }
-})
-```
+The bridge prefers semantic UIA execution. It escalates to foreground input only when the operation requires it or a side-effect-free keyboard attempt conclusively failed. Pointer actions are never replayed after an ambiguous result.
 
-With a postcondition, the backend waits for the requested text or role to appear (or disappear with `gone: true`) before reporting success. It records whether the condition was newly verified, already present before delivery, or failed. A failed postcondition changes the execution outcome to `didnt`. Event delivery alone is never treated as semantic success.
+## Native Windows layer
 
-One action is represented by an array of length one. A multi-action transaction is appropriate only when no intermediate observation is needed. The runtime validates one base state, acquires one resource lane, and sends the steps as one native helper transaction. The helper captures one pre-transaction root baseline, executes and verifies steps in order, and stops on the first failed or invalidated step. Partial results include `stoppedAt`, so callers know the exact checked boundary and must re-observe before continuing. The helper performs one final root-delta settle and the bridge produces one final observation. There is no alternate sequential protocol. This is not a mechanism for parallel actions within one UI resource.
+`windows-bridge.exe` is a stdio JSON-lines helper with:
+- UIA control-view extraction
+- WGC capture with PrintWindow/GDI fallback
+- SendInput and foreground validation
+- native `actBatch`
+- UIA `uiaReadText`
+- UIA `uiaWaitFor`
+- `launchApp` through `ShellExecuteExW`
+- a fixed worker pool and protected physical input
 
-The bridge resolves model intent. The backend/helper owns grounding, preflight, delivery, and evidence. Accessibility capabilities choose an initial strategy but are not treated as proof that the intended result occurred. Editable-region clicks establish foreground focus for following unscoped keyboard steps in the same transaction. Raw coordinates are tied to the image-bearing state that produced them. Web-backed editable controls use atomic keyboard events and web-backed buttons use pointer events so application state receives normal input events rather than only a changed accessibility value. A helper result reports `worked`, `didnt`, or `unknown`, including evidence and shallow root changes where available.
+The helper is stateless at the public seam. It owns short-lived look records and resolves refs against the look that produced them.
 
-With `headless: true`, the background boundary is strict: Pi must never activate or raise an application, change the user's focused window, move the global cursor, or post raw input. With `headless: false` (the default), credible semantic activation may begin in the background, editable clicks preserve the focus they establish for following unscoped keyboard input, and keyboard input with a checked `didnt` result may retry in the foreground because the first attempt proved side-effect-free. Focus-preserving native keyboard requests must not raise or re-focus the window between semantic activation and HID delivery. Canvas editors such as PowerPoint otherwise collapse an inner text editor back to placeholder selection. Ambiguous pointer outcomes are never replayed.
+## Codemode
 
-The agent-facing `act_ui.headless` flag determines whether foreground execution is prohibited. Fallback-capable multi-action calls execute one checked action at a time, retain click-established focus, and stop on a checked `didnt`. Strict-headless calls retain native transactional batching.
+The five tools are normal direct Pi tools and are therefore callable from `codemode` scripts.
 
-## Successor diffs
+There is no custom REPL. Codemode supplies the QuickJS sandbox, tool pipeline, permission checks, output limits, and image helper.
 
-Complete observations remain immutable and bounded internally. The initial observation renders a folded full view. After a mutation, `view.ts` stabilizes public refs using confident native identities, saves the complete resulting state, and compares it with the base state. Small trustworthy results render `added`, `updated`, and `removed` nodes plus the next `stateId`. Root appearance, closure, and focus changes remain part of the run result.
-
-Diff rendering falls back to a full folded view when the root identity changes, too few successor nodes can be matched confidently, or the change budget would make a patch less useful than the full view. Cached queries always operate on the complete stored state, never on a partially applied model-side tree.
-
-## Native transports
-
-The Windows line protocol accepts multiple in-flight requests and correlates responses by request id. The helper uses a fixed worker pool and initializes UIA per worker thread, keeps eight immutable native look records, and serializes global physical input. Target focus, bounded occlusion preflight, and HID delivery share that same critical section. Another worker cannot change the foreground between validation and delivery. UIA-only batches do not acquire the global physical-input lock, while any batch that may fall back to pointer or keyboard delivery holds it for the complete transaction.
-
-Windows UIA extraction is bounded. When the native limit omits descendants, the nearest retained ancestors are marked `truncated`. `expand_ui` performs a scoped look and the helper carries forward the untouched refs into the new immutable look record. Windows root deltas combine an event journal with authoritative before/after snapshots. `SetWinEventHook` accelerates settling and retains short-lived root transitions, while snapshots remain the source of truth for persistent state.
-
-## Preventing platform drift
-
-Platform behavior is defined by invariants, not matching source structure. The helper reports an `architectureVersion` and the invariant set it implements. Startup fails closed if the helper omits a required invariant. The TypeScript backend interface and conformance check additionally require the helper to expose the full observation, text ownership, batching, and lifecycle surface.
-
-Changes to the native backend should therefore include three layers of evidence:
-- shared contract tests for request and response semantics.
-- native compilation and deterministic native unit tests.
-- the same black-box behavioral properties on an interactive Windows host.
-
-State ownership, bounds, progressive disclosure, transaction boundaries, and honest outcomes are contract requirements. The Windows UI Automation, capture, and input mechanisms are implementation details behind the platform-neutral seam.
-
-## Design constraints
-
-- Preserve the multi-root forest and progressive disclosure.
-- Make state ownership explicit. Never depend on a mutable session-wide current UI.
-- Reject stale writes before dispatch using resource epochs.
-- Serialize by physical resource, not by tool name or whole session.
-- Prefer platform semantics as the cheapest credible attempt, then trust verified outcomes over advertised capabilities.
-- Preserve focus established by one transaction step for dependent keyboard steps.
-- Store full immutable states and render the smallest trustworthy resulting view.
-- Keep observation compact and expand locally.
-- Let the backend/helper own action grounding and verification.
-- Keep platform mechanisms behind the platform-neutral seam.
-- Treat batching as one-resource transaction amortization, not a separate execution architecture.
-- Fail closed when an action outcome is uncertain. A later call must observe again.
+Two details matter:
+- Codemode nested calls return `structuredContent`, not image blocks. `get_window_state({ screenshotData: true })` puts a data URL into `screenshots[0].dataUrl` for `image()`.
+- Codemode has no timers. Use `wait_for`, not sleep loops.

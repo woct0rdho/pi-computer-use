@@ -1,7 +1,5 @@
 # Configuration
 
-Configuration controls strict accessibility execution.
-
 ## Files
 
 Global config:
@@ -26,17 +24,17 @@ Example:
 }
 ```
 
-Run `/computer-use` in Pi to show the active config and its source.
+Edit the file and reload Pi to apply changes.
 
-## Options
-
-### `headless`
+## `headless`
 
 Default: `false`
 
-When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover are blocked. When `false` (the default), Pi prefers verified semantic activation when it is credible, preserves the focus established by editable clicks for dependent keyboard input, and may retry keyboard input in the foreground when a background attempt conclusively produced no value change. Ambiguous pointer actions are never replayed blindly.
+When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover are blocked.
 
-## Environment variables
+When `false`, `act` prefers verified semantic activation, preserves focus established by editable clicks, and may retry keyboard input in the foreground when a background attempt conclusively produced no value change. Ambiguous pointer actions are never replayed.
+
+Environment variables:
 
 ```bash
 PI_COMPUTER_USE_HEADLESS=0
@@ -46,4 +44,29 @@ PI_COMPUTER_USE_DELIVERY_POLICY=foreground
 PI_COMPUTER_USE_WINDOWS_HELPER_PATH=C:\path\to\windows-bridge.exe
 ```
 
-`PI_COMPUTER_USE_HEADLESS=1` prohibits foreground fallback. `PI_COMPUTER_USE_DELIVERY_POLICY` is a debugging input. Normal policy belongs in configuration rather than individual model calls.
+Normal delivery policy belongs in configuration, not model calls.
+
+## Codemode
+
+The CUA tools work without codemode. To use the built-in JavaScript orchestration layer, enable it:
+
+```json
+{
+  "defaultTools": ["+codemode"]
+}
+```
+
+For a Codex-style single top-level CUA surface, hide the five direct declarations while keeping them callable from scripts:
+
+```json
+{
+  "codemode": {
+    "mode": "only",
+    "inlineBudget": 6000
+  }
+}
+```
+
+The five tool declarations are compact. The higher budget ensures `act` and `get_window_state` stay visible in the codemode description.
+
+Without `mode: "only"`, the model sees the five tools plus `codemode` and can choose either path.

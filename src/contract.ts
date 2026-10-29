@@ -1,87 +1,232 @@
-export type RootSelector = string;
-export type ImageMode = "auto" | "always" | "never";
-export type MouseButtonName = "left" | "right" | "middle";
+export type WindowId = number | string;
+export type MouseButton = "left" | "right" | "middle";
+export type ActionOutcome = "worked" | "didnt" | "unknown";
 
-export interface ObserveTargetParams {
-    root?: RootSelector;
+export interface Rect {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
 }
 
-export interface FindParams {
-    text?: string;
-    app?: string;
+export interface WindowRef {
+    app: string;
+    id: WindowId;
+    title?: string;
+}
+
+export interface WindowDetails extends WindowRef {
+    kind?: "window" | "dialog" | "menu" | "popover";
     pid?: number;
-    // Filters on the platform's best-effort presentation hint; only window vs transient is guaranteed.
-    kind?: "window" | "menu" | "popover" | "dialog";
+    isForeground?: boolean;
+    isMinimized?: boolean;
+    bounds?: Rect;
 }
 
-export interface StateTargetParams {
+export interface ListAppsParams {
+    app?: string;
+    title?: string;
+    pid?: number;
+    includeMinimized?: boolean;
+    limit?: number;
+}
+
+export interface ListAppsResult {
+    apps: Array<{
+        app: string;
+        name?: string;
+        pid?: number;
+        windows: WindowDetails[];
+    }>;
+    windows: WindowDetails[];
+    total: number;
+    returned: number;
+}
+
+export interface GetWindowStateParams {
+    window: WindowRef;
     stateId?: string;
-}
-
-export interface ObserveParams extends ObserveTargetParams {
-    mode?: "semantic" | "visual" | "fused";
-    // Internal capture override; not part of the model-facing schema.
-    readText?: "auto" | "always" | "never";
-}
-
-export interface SearchUiParams extends StateTargetParams {
-    text?: string;
-    role?: string;
-    capability?: string;
-}
-
-export interface ExpandUiParams extends StateTargetParams {
-    ref: string;
+    refresh?: boolean;
+    includeText?: boolean;
+    includeScreenshot?: boolean;
+    screenshotData?: boolean;
+    query?: {
+        text?: string;
+        role?: string;
+        capability?: string;
+        limit?: number;
+    };
+    elementIndex?: number;
     depth?: number;
 }
 
-export interface InspectUiParams extends StateTargetParams {
-    ref: string;
+export interface AccessibilityView {
+    tree: string;
+    focusedElement?: string;
+    selectedText?: string;
+    selectedElements?: string[];
+    documentText?: string;
+    truncated?: boolean;
+    nodeCount?: number;
+    returned?: number;
 }
 
-export interface UiCondition {
-    ref?: string;
-    scopeRef?: string;
+export interface ScreenshotView {
+    screenshotId: string;
+    width: number;
+    height: number;
+    originX: number;
+    originY: number;
+    dataUrl?: string;
+    coordinateGuidance?: string;
+}
+
+export interface WindowStateResult {
+    stateId: string;
+    window: WindowRef;
+    accessibility: AccessibilityView | null;
+    screenshots: ScreenshotView[];
+    matches?: number;
+    activation?: {
+        activated: boolean;
+        raised: boolean;
+        unminimized: boolean;
+    };
+}
+
+export interface ExpectCondition {
     text?: string;
     role?: string;
-    value?: string;
+    elementIndex?: number;
     until?: "present" | "absent";
     timeoutMs?: number;
 }
 
-export interface UiAction {
-    action: "press" | "click" | "setText" | "typeText" | "keypress" | "scroll" | "drag" | "moveMouse";
-    ref?: string;
+export interface ClickAction {
+    type: "click";
+    elementIndex?: number;
     x?: number;
     y?: number;
-    text?: string;
-    keys?: string[];
-    scrollX?: number;
-    scrollY?: number;
-    path?: Array<{ x: number; y: number } | [number, number]>;
-    button?: MouseButtonName;
-    clickCount?: number;
+    screenshotId?: string;
+    button?: MouseButton;
+    count?: 1 | 2 | 3;
 }
 
-export interface ActParams extends StateTargetParams {
+export interface TypeTextAction {
+    type: "type_text";
+    text: string;
+    elementIndex?: number;
+}
+
+export interface PressKeyAction {
+    type: "press_key";
+    key: string;
+    elementIndex?: number;
+}
+
+export interface SetValueAction {
+    type: "set_value";
+    elementIndex: number;
+    value: string;
+}
+
+export interface ScrollAction {
+    type: "scroll";
+    elementIndex?: number;
+    x?: number;
+    y?: number;
+    deltaX?: number;
+    deltaY?: number;
+    screenshotId?: string;
+}
+
+export interface DragAction {
+    type: "drag";
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    durationMs?: number;
+    screenshotId?: string;
+}
+
+export interface ActivateAction {
+    type: "activate";
+}
+
+export type UiAction = ClickAction | TypeTextAction | PressKeyAction | SetValueAction | ScrollAction | DragAction | ActivateAction;
+
+export interface ActParams {
+    window: WindowRef;
+    stateId: string;
     actions: UiAction[];
-    expect?: UiCondition;
+    expect?: ExpectCondition;
 }
 
-export interface ReadTextParams extends StateTargetParams {
-    ref: string;
-    offset?: number;
+export interface Verification {
+    status: "verified" | "preexisting" | "failed";
+    text?: string;
+    role?: string;
+    value?: string;
+    gone?: boolean;
+    timeoutMs: number;
 }
 
-export interface WaitForParams extends StateTargetParams, UiCondition {}
+export interface Change {
+    type: "added" | "updated" | "removed";
+    elementIndex: number;
+    parentIndex?: number;
+    path?: number[];
+    fields?: Record<string, unknown>;
+}
 
-export const AGENT_TOOL_NAMES = new Set([
-    "find_roots",
-    "read_text",
-    "wait_for",
-    "observe_ui",
-    "search_ui",
-    "expand_ui",
-    "inspect_ui",
-    "act_ui",
-]);
+export interface ActResult {
+    stateId?: string;
+    window: WindowRef;
+    outcome: ActionOutcome;
+    verification?: Verification;
+    view: "diff" | "full";
+    changes?: Change[];
+    accessibility?: AccessibilityView;
+    screenshots?: ScreenshotView[];
+    error?: { code: string; message: string };
+    activation?: {
+        activated: boolean;
+        raised: boolean;
+        unminimized: boolean;
+    };
+}
+
+export interface WaitForParams {
+    window: WindowRef;
+    stateId?: string;
+    text?: string;
+    role?: string;
+    elementIndex?: number;
+    until?: "present" | "absent";
+    timeoutMs?: number;
+}
+
+export interface WaitForResult {
+    found: boolean;
+    timedOut?: boolean;
+    stateId: string;
+    view: "diff" | "full";
+    changes?: Change[];
+    accessibility?: AccessibilityView;
+    match?: {
+        elementIndex: number;
+        role: string;
+        label: string;
+    };
+}
+
+export interface LaunchAppParams {
+    app: string;
+    args?: string[];
+    waitMs?: number;
+}
+
+export interface LaunchAppResult {
+    launched: boolean;
+    windows: WindowDetails[];
+    error?: { code: string; message: string };
+}

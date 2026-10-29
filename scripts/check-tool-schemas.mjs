@@ -49,13 +49,12 @@ if (failures.length) {
 const tools = [];
 const stub = {
   registerTool: (tool) => tools.push(tool),
-  registerCommand: () => {},
   on: () => {},
 };
 const { default: computerUseExtension } = await import("../extensions/computer-use.ts");
 computerUseExtension(stub);
 
-const expected = ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for"];
+const expected = ["list_apps", "get_window_state", "act", "wait_for", "launch_app"];
 assert.deepEqual(tools.map((tool) => tool.name), expected, "registered tool surface drifted");
 for (const tool of tools) {
   assert.ok(tool.parameters && typeof tool.parameters === "object", `${tool.name} has no parameters schema`);
@@ -69,11 +68,13 @@ for (const tool of tools) {
     assert.ok(!pattern.test(json), `${tool.name} ${label} is not function-call compatible`);
   }
 }
-const act = tools.find((tool) => tool.name === "act_ui");
-assert.equal(act?.annotations?.readOnlyHint, false, "act_ui must not be marked read-only");
-assert.equal(act?.annotations?.destructiveHint, true, "act_ui must be marked destructive");
+for (const name of ["act", "launch_app"]) {
+  const tool = tools.find((candidate) => candidate.name === name);
+  assert.equal(tool?.annotations?.readOnlyHint, false, `${name} must not be marked read-only`);
+  assert.equal(tool?.annotations?.destructiveHint, true, `${name} must be marked destructive`);
+}
 for (const tool of tools) {
-  if (tool.name === "act_ui") continue;
+  if (tool.name === "act" || tool.name === "launch_app") continue;
   assert.equal(tool.annotations?.readOnlyHint, true, `${tool.name} must be marked read-only`);
 }
 

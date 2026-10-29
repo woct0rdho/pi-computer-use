@@ -2,7 +2,7 @@
 //!
 //! On Windows, uses the [`windows`] crate to walk the UIA accessibility tree
 //! of a given top-level window and extract semantic elements with their
-//! properties.  On non-Windows platforms all entry points are stubbed out
+//! properties. On non-Windows platforms all entry points are stubbed out
 //! and return empty results.
 //!
 //! UIA element extraction for model-visible outlines and element metadata.
@@ -11,9 +11,7 @@ use serde_json::Value;
 
 use crate::refs::RefStore;
 
-// ---------------------------------------------------------------------------
 // Public interface
-// ---------------------------------------------------------------------------
 
 /// Extract UIA accessible elements from the window identified by `hwnd`.
 ///
@@ -69,14 +67,12 @@ pub fn extract_elements_from(
     }
 }
 
-// ---------------------------------------------------------------------------
 // UIA control type -> semantic role mapping
 //
 // These constants and the mapping function are always compiled because
 // they are exercised by cross-platform unit tests, but on non-Windows the
 // compiler flags them as dead code since they are only called from the
-// `#[cfg(windows)] native` module.  We suppress the lint for that case.
-// ---------------------------------------------------------------------------
+// `#[cfg(windows)] native` module. We suppress the lint for that case.
 
 #[cfg_attr(not(windows), allow(dead_code))]
 const UIA_WINDOW_CONTROL: u32 = 50032;
@@ -200,9 +196,7 @@ pub fn annotation_can_set_text(signals: &ElementAnnotationSignals) -> bool {
     signals.value && !signals.value_read_only.unwrap_or(false) || signals.text
 }
 
-// ---------------------------------------------------------------------------
-// Windows implementation  (windows crate)
-// ---------------------------------------------------------------------------
+// Windows implementation (windows crate)
 
 #[cfg(windows)]
 mod native {
@@ -905,9 +899,7 @@ mod native {
         unsafe { element.CurrentName().unwrap_or_default().to_string() }
     }
 
-    // -----------------------------------------------------------------------
     // COM lifetime guard
-    // -----------------------------------------------------------------------
 
     /// Calls `CoInitializeEx` on construction and `CoUninitialize` on drop.
     struct ComGuard;
@@ -915,8 +907,8 @@ mod native {
     impl ComGuard {
         fn new() -> Result<Self, String> {
             // SAFETY: COM must be initialised for the calling thread before
-            // any UIA calls.  S_OK (0) and S_FALSE (1) are both success
-            // indicators; only a negative HRESULT means failure.
+            // any UIA calls. S_OK (0) and S_FALSE (1) are both success
+            // indicators. Only a negative HRESULT means failure.
             let hr = unsafe { CoInitializeEx(Some(std::ptr::null()), COINIT_APARTMENTTHREADED) };
             if hr.0 < 0 {
                 return Err(format!("CoInitializeEx failed: {:#010x}", hr.0));
@@ -1029,9 +1021,7 @@ pub fn occlusion_ok(
     Err("UIA is only supported on Windows".to_owned())
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod unit_tests {
@@ -1039,7 +1029,7 @@ mod unit_tests {
     use crate::refs::NativeHandle;
     use serde_json::json;
 
-    // -- Platform support check (non-Windows) -------------------------------
+    // Platform support check (non-Windows)
 
     #[test]
     #[cfg(not(windows))]
@@ -1049,7 +1039,7 @@ mod unit_tests {
         assert!(result.is_empty());
     }
 
-    // -- Role mapping (cross-platform) --------------------------------------
+    // Role mapping (cross-platform)
 
     #[test]
     fn test_control_type_to_role_edit() {
@@ -1102,7 +1092,7 @@ mod unit_tests {
         assert_eq!(control_type_to_role(0), "unknown");
     }
 
-    // -- Element JSON shape (cross-platform) --------------------------------
+    // Element JSON shape (cross-platform)
 
     #[test]
     fn test_element_json_shape() {

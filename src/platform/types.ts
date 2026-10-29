@@ -28,10 +28,15 @@ export interface PlatformRootQuery {
     title?: string;
 }
 
-export interface PlatformApp {
-    appName: string;
-    pid: number;
-    isFrontmost?: boolean;
+export interface PlatformLaunchRequest {
+    app: string;
+    args?: string[];
+    waitMs?: number;
+}
+
+export interface PlatformLaunchResponse {
+    launched: boolean;
+    pid?: number;
 }
 
 export interface FramePoints {
@@ -62,14 +67,6 @@ export interface PlatformRoot {
     // Platform-reported modality fact, including platform-specific modal/dialog/sheet signals.
     isModal: boolean;
     metadata?: Record<string, unknown>;
-}
-
-export interface PlatformFrontmostResult {
-    appName: string;
-    pid: number;
-    windowTitle?: string;
-    windowId?: number;
-    rootRef?: string;
 }
 
 export interface PlatformFocusWindowResult {
@@ -190,11 +187,10 @@ export interface ComputerUsePlatformBackend {
     // Release process-local resources when the Pi session is torn down.
     shutdown?(): void | Promise<void>;
     ensureReady(ctx: ExtensionContext, state: PlatformReadyState, signal?: AbortSignal): Promise<PlatformReadyState>;
-    listApps(signal?: AbortSignal): Promise<PlatformApp[]>;
     listRoots(query: PlatformRootQuery, signal?: AbortSignal): Promise<PlatformRoot[]>;
-    getFrontmost(signal?: AbortSignal): Promise<PlatformFrontmostResult>;
     focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult>;
     observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse>;
+    launchApp(request: PlatformLaunchRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformLaunchResponse>;
     act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
     // Execute one-resource actions with one root baseline and one final settle.
     actBatch?(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;

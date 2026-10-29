@@ -1,7 +1,7 @@
 //! Window and element reference store.
 //!
 //! Maps monotonically increasing display-form references (`@w1`, `@e2`, ...)
-//! to opaque native handles (HWND, UIA element pointer).  Each `State`
+//! to opaque native handles (HWND, UIA element pointer). Each `State`
 //! should get its own `RefStore` so that references remain scoped to a
 //! single discovery session.
 
@@ -10,7 +10,7 @@ use std::fmt;
 
 /// An opaque native handle (e.g., HWND or UIA element pointer).
 ///
-/// Kept inside helper memory; never serialized to JSON.
+/// Kept inside helper memory. Never serialized to JSON.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NativeHandle(isize);
 
@@ -26,9 +26,7 @@ impl NativeHandle {
     }
 }
 
-// ---------------------------------------------------------------------------
 // WindowRef
-// ---------------------------------------------------------------------------
 
 /// A reference to a discovered window.
 ///
@@ -60,9 +58,7 @@ impl WindowRef {
     }
 }
 
-// ---------------------------------------------------------------------------
 // ElementRef
-// ---------------------------------------------------------------------------
 
 /// A reference to a discovered UIA element.
 ///
@@ -79,13 +75,11 @@ impl fmt::Display for ElementRef {
     }
 }
 
-// ---------------------------------------------------------------------------
 // RefStore
-// ---------------------------------------------------------------------------
 
 /// An owned store of window and element native handles.
 ///
-/// Assigns monotonically increasing, 1-indexed references.  Each
+/// Assigns monotonically increasing, 1-indexed references. Each
 /// discovery state should hold its own `RefStore` so that reference
 /// numbering is scoped to that state.
 #[derive(Debug, Clone)]
@@ -162,9 +156,7 @@ impl Default for RefStore {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod unit_tests {

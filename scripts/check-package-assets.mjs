@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const expected = [
     "package/prebuilt/windows/windows-bridge.exe",
+    "package/skills/computer-use/SKILL.md",
 ];
 
 const suppliedTarball = process.argv[2];
@@ -22,7 +23,11 @@ try {
 console.log("package assets passed");
 
 async function createTarball() {
-    const { stdout } = await execFileAsync("npm", ["pack", "--ignore-scripts", "--silent"], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+    const command = process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "npm";
+    const args = process.platform === "win32"
+        ? ["/d", "/s", "/c", "npm pack --ignore-scripts --silent"]
+        : ["pack", "--ignore-scripts", "--silent"];
+    const { stdout } = await execFileAsync(command, args, { encoding: "utf8", maxBuffer: 1024 * 1024 });
     const filename = stdout.trim().split("\n").reverse().find((line) => line.endsWith(".tgz"));
     assert.ok(filename, "pnpm pack did not produce a tarball");
     return filename;

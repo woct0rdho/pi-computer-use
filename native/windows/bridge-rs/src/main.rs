@@ -215,6 +215,7 @@ fn handle_request(request: &Request) -> Response {
         "diagnostics" => Ok(diagnostics()),
         "listRoots" => handle_list_roots(&request.args),
         "look" => handle_look(&request.args),
+        "launchApp" => handle_launch_app(&request.args),
         "focusWindow" => handle_focus_window(&request.args),
         "act" => handle_act(&request.args),
         "actBatch" => handle_act_batch(&request.args),
@@ -269,6 +270,124 @@ fn handle_list_roots(args: &Value) -> Result<Value, ProtocolError> {
             .map(|root| (root_identity(&root), root)),
     );
     Ok(result)
+}
+
+fn handle_launch_app(args: &Value) -> Result<Value, ProtocolError> {
+    let app = args
+        .get("app")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid("launchApp requires app"))?;
+    let arguments = args
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(quote_windows_arg)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let lower = app.to_ascii_lowercase();
+    if [".bat", ".cmd", ".ps1", ".vbs", ".js", ".wsf"]
+        .iter()
+        .any(|extension| lower.ends_with(extension))
+    {
+        return Err(invalid("launchApp refuses shell script targets"));
+    }
+    let executable = lower.rsplit(['\\', '/']).next().unwrap_or(&lower);
+    if [
+        "cmd.exe",
+        "powershell.exe",
+        "powershell_ise.exe",
+        "pwsh.exe",
+        "wt.exe",
+        "windowsterminal.exe",
+        "conhost.exe",
+        "wsl.exe",
+        "bash.exe",
+    ]
+    .contains(&executable)
+    {
+        return Err(invalid("launchApp refuses terminal launchers"));
+    }
+    launch_windows(app, &arguments)
+}
+
+fn quote_windows_arg(value: &str) -> String {
+    if !value.is_empty() && !value.contains([' ', '\t', '\n', '"']) {
+        return value.to_owned();
+    }
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0usize;
+    for character in value.chars() {
+        if character == '\\' {
+            backslashes += 1;
+        } else if character == '"' {
+            quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+            quoted.push('"');
+            backslashes = 0;
+        } else {
+            quoted.push_str(&"\\".repeat(backslashes));
+            quoted.push(character);
+            backslashes = 0;
+        }
+    }
+    quoted.push_str(&"\\".repeat(backslashes * 2));
+    quoted.push('"');
+    quoted
+}
+
+#[cfg(not(windows))]
+fn launch_windows(_app: &str, _arguments: &str) -> Result<Value, ProtocolError> {
+    Err(ProtocolError::new(
+        "launchApp is only supported on Windows",
+        ErrorCode::UnsupportedPlatform,
+    ))
+}
+
+#[cfg(windows)]
+fn launch_windows(app: &str, arguments: &str) -> Result<Value, ProtocolError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::GetProcessId;
+    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn wide(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let file = wide(app);
+    let parameters = (!arguments.is_empty()).then(|| wide(arguments));
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpFile: PCWSTR(file.as_ptr()),
+        lpParameters: parameters
+            .as_ref()
+            .map(|value| PCWSTR(value.as_ptr()))
+            .unwrap_or(PCWSTR::null()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    unsafe { ShellExecuteExW(&mut info) }
+        .map_err(|error| ProtocolError::new(format!("launchApp failed: {error}"), ErrorCode::InvalidRequest))?;
+    let pid = if info.hProcess.is_invalid() {
+        0
+    } else {
+        let pid = unsafe { GetProcessId(info.hProcess) };
+        let _ = unsafe { CloseHandle(info.hProcess) };
+        pid
+    };
+    Ok(json!({ "launched": true, "pid": pid }))
 }
 
 fn handle_focus_window(args: &Value) -> Result<Value, ProtocolError> {
@@ -520,7 +639,7 @@ fn outline_from_elements(
         let screen_w = number_at(bounds, "width", number_at(bounds, "w", 1.0)).max(1.0);
         let screen_h = number_at(bounds, "height", number_at(bounds, "h", 1.0)).max(1.0);
         // Windows UIA and HWND geometry are in DPI-aware screen points. Look images
-        // are pixels; every element rect below is converted by the window-image scale
+        // are pixels. Every element rect below is converted by the window-image scale
         // so coordinate acts can invert through the stored LookRecord without TS state.
         let rect = json!({ "x": (screen_x - fx) * sx, "y": (screen_y - fy) * sy, "w": screen_w * sx, "h": screen_h * sy });
         let native_reference = raw.get("ref").and_then(Value::as_str).unwrap_or("");
@@ -1143,7 +1262,7 @@ fn await_delta_snapshot(
     }
     if signaled {
         // Signals accelerate the settle window, but the reported delta is always
-        // a full before/after snapshot diff.  Keep re-diffing briefly so a
+        // a full before/after snapshot diff. Keep re-diffing briefly so a
         // close-then-open transition (menus/popups) does not report only the
         // first observed close.
         for _ in 0..3 {
@@ -1531,6 +1650,21 @@ mod tests {
         assert!(delta
             .iter()
             .any(|item| item["title"] == "File menu" && item["change"] == "appeared"));
+    }
+
+    #[test]
+    fn launch_app_rejects_scripts_and_terminal_launchers() {
+        for app in ["run.cmd", "run.ps1", "C:\\Windows\\System32\\cmd.exe", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"] {
+            let error = handle_launch_app(&json!({ "app": app })).expect_err("unsafe launch target must fail");
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+        }
+    }
+
+    #[test]
+    fn launch_arguments_are_quoted_without_a_shell() {
+        assert_eq!(quote_windows_arg("plain"), "plain");
+        assert_eq!(quote_windows_arg("two words"), "\"two words\"");
+        assert_eq!(quote_windows_arg("a\\\"b"), "\"a\\\\\\\"b\"");
     }
 
     #[test]

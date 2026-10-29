@@ -14,9 +14,9 @@ assert.equal(WINDOWS_HELPER_PATH, helperOverride);
 
 assert.equal(currentPlatformBackend.name, "windows");
 assert.equal(typeof currentPlatformBackend.ensureReady, "function");
-assert.equal(typeof currentPlatformBackend.listApps, "function");
 assert.equal(typeof currentPlatformBackend.listRoots, "function");
 assert.equal(typeof currentPlatformBackend.observe, "function");
+assert.equal(typeof currentPlatformBackend.launchApp, "function");
 assert.equal(typeof currentPlatformBackend.act, "function");
 assert.equal(typeof currentPlatformBackend.actBatch, "function");
 

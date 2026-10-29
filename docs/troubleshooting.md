@@ -31,38 +31,39 @@ If the helper was built but setup reports a file-lock error, an existing helper 
 
 Desktop computer use requires an interactive user session. Run Pi in an unlocked interactive desktop session rather than a service, headless, or disconnected session.
 
-## Strict accessibility mode blocks an action
+## Headless mode blocks an action
 
-Headless mode blocks raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover.
+`headless: true` blocks raw pointer events, raw keyboard events, foreground focus fallback, and cursor takeover.
 
-Use refs from the latest `observe_ui` result. If the workflow needs raw events, disable strict accessibility mode.
+Use semantic `elementIndex` actions from the latest `get_window_state` result. If the workflow needs raw events, disable `headless`.
 
-## State or refs are stale
+## State or element indexes are stale
 
-Refs and coordinates belong to the latest observed state. Call `observe_ui` again and retry with the new `stateId`.
+Element indexes and coordinates belong to the latest observed state. Call `get_window_state` again and retry with the new `stateId`.
 
-The bridge can sometimes reacquire stale accessibility refs by role, label, capability, and position, but this is not guaranteed.
+The bridge preserves element indexes across trustworthy successor states, but a stale or evicted state is never replayed.
 
 ## Coordinates are rejected
 
-Coordinates are image pixels from the latest observed window. They are invalid if:
+Coordinates are screenshot pixels from the latest observed window. They are invalid if:
 - the window changed size
 - the target window changed
 - a new observation was captured
 - the coordinate is outside the captured bounds
 
-Call `observe_ui` again and retry.
+Call `get_window_state` again and retry.
 
 ## Capture fails
 
 Check that:
 - The target app has an open window.
-- The window was not closed between `observe_ui` and `act_ui`.
+- The window was not closed between `get_window_state` and `act`.
 - The app is running in an interactive, unlocked desktop session.
 - The window is not minimized or fully offscreen.
 
-If the target is ambiguous, specify the app and window title:
+If the target is ambiguous, filter `list_apps` and pass the exact returned window:
 
 ```ts
-observe_ui({ app: "Notepad", windowTitle: "Untitled" })
+list_apps({ app: "notepad++", title: "Untitled" })
+get_window_state({ window, includeText: true })
 ```

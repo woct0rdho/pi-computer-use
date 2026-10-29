@@ -1,12 +1,3 @@
-// TypeBox schemas for the `structuredContent` of each tool.
-//
-// The machine-facing result is `details` without the rendered outline text, so
-// scripts and other programmatic callers get data instead of a formatted
-// string. Deep structures that are already documented by the `details`
-// interfaces (outlines, notes, diagnostics) stay `unknown` here: codemode
-// renders output schemas in full, so the envelope fields scripts actually use
-// are typed and the rest remains honest.
-
 import { Type } from "typebox";
 
 const rectSchema = Type.Object({
@@ -16,202 +7,116 @@ const rectSchema = Type.Object({
     h: Type.Number(),
 });
 
-const targetSchema = Type.Object({
+const windowSchema = Type.Object({
     app: Type.String(),
-    pid: Type.Number(),
-    windowTitle: Type.String(),
-    windowId: Type.Number(),
-    windowRef: Type.Optional(Type.String()),
-    nativeWindowRef: Type.Optional(Type.String()),
+    id: Type.Union([Type.Number(), Type.String()]),
+    title: Type.Optional(Type.String()),
+    kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("dialog"), Type.Literal("menu"), Type.Literal("popover")])),
+    pid: Type.Optional(Type.Number()),
+    isForeground: Type.Optional(Type.Boolean()),
+    isMinimized: Type.Optional(Type.Boolean()),
+    bounds: Type.Optional(rectSchema),
 });
 
-const captureSchema = Type.Object({
-    stateId: Type.String(),
+const accessibilitySchema = Type.Object({
+    tree: Type.String(),
+    focusedElement: Type.Optional(Type.String()),
+    selectedText: Type.Optional(Type.String()),
+    selectedElements: Type.Optional(Type.Array(Type.String())),
+    documentText: Type.Optional(Type.String()),
+    truncated: Type.Optional(Type.Boolean()),
+    nodeCount: Type.Optional(Type.Number()),
+    returned: Type.Optional(Type.Number()),
+});
+
+const screenshotSchema = Type.Object({
+    screenshotId: Type.String(),
     width: Type.Number(),
     height: Type.Number(),
-    scaleFactor: Type.Number(),
-    timestamp: Type.Number(),
-    coordinateSpace: Type.Literal("window-relative-screenshot-pixels"),
-});
-
-const executionVariantSchema = Type.Union([Type.Literal("stealth"), Type.Literal("default")]);
-const viewSchema = Type.Union([Type.Literal("full"), Type.Literal("diff")]);
-
-const executionSchema = Type.Object({
-    strategy: Type.Union([Type.Literal("look"), Type.Literal("act"), Type.Literal("wait")]),
-    runtimeMode: Type.Optional(executionVariantSchema),
-    variant: Type.Optional(executionVariantSchema),
-    stealthCompatible: Type.Optional(Type.Boolean()),
-    delivery: Type.Optional(Type.Union([Type.Literal("ax"), Type.Literal("hid")])),
-    deliveryPolicy: Type.Optional(Type.Union([Type.Literal("ax_only"), Type.Literal("background"), Type.Literal("default"), Type.Literal("foreground")])),
-    outcome: Type.Optional(Type.Union([Type.Literal("worked"), Type.Literal("didnt"), Type.Literal("unknown")])),
-    actionCount: Type.Optional(Type.Number()),
-    stoppedAt: Type.Optional(Type.Number()),
-    backgroundFirst: Type.Optional(Type.Boolean()),
-    escalatedToForeground: Type.Optional(Type.Boolean()),
-    escalationReason: Type.Optional(Type.String()),
-    verification: Type.Optional(
-        Type.Object({
-            status: Type.Union([Type.Literal("verified"), Type.Literal("preexisting"), Type.Literal("failed")]),
-            text: Type.Optional(Type.String()),
-            role: Type.Optional(Type.String()),
-            value: Type.Optional(Type.String()),
-            gone: Type.Optional(Type.Boolean()),
-            timeoutMs: Type.Number(),
-        }),
-    ),
-    performed: Type.Optional(Type.Unknown()),
-    evidence: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-    error: Type.Optional(Type.Unknown()),
-    rootDelta: Type.Optional(Type.Unknown()),
-    steps: Type.Optional(Type.Array(Type.Unknown())),
-    backgroundAttempt: Type.Optional(Type.Unknown()),
+    originX: Type.Number(),
+    originY: Type.Number(),
+    dataUrl: Type.Optional(Type.String()),
+    coordinateGuidance: Type.Optional(Type.String()),
 });
 
 const activationSchema = Type.Object({
     activated: Type.Boolean(),
-    unminimized: Type.Boolean(),
     raised: Type.Boolean(),
+    unminimized: Type.Boolean(),
 });
 
-const configSchema = Type.Object({ headless: Type.Boolean() });
-
-const imageReasonSchema = Type.Union([
-    Type.Literal("fallback_recovery"),
-    Type.Literal("no_ax_targets"),
-    Type.Literal("sparse_ax_targets"),
-    Type.Literal("weak_ax_targets"),
-    Type.Literal("unlabeled_ax_targets"),
-    Type.Literal("duplicated_ax_labels"),
-]);
-
-const viewReasonSchema = Type.Union([
-    Type.Literal("root_replaced"),
-    Type.Literal("change_budget_exceeded"),
-    Type.Literal("identity_confidence_low"),
-]);
-
-const matchSummarySchema = Type.Object({
-    ref: Type.String(),
-    role: Type.String(),
-    label: Type.String(),
-    actions: Type.Array(Type.String()),
-    path: Type.String(),
-    matchReason: Type.Optional(Type.Union([Type.Literal("exact"), Type.Literal("prefix"), Type.Literal("substring"), Type.Literal("fuzzy"), Type.Literal("filter")])),
-    score: Type.Optional(Type.Number()),
+const changeSchema = Type.Object({
+    type: Type.Union([Type.Literal("added"), Type.Literal("updated"), Type.Literal("removed")]),
+    elementIndex: Type.Number(),
+    parentIndex: Type.Optional(Type.Number()),
+    path: Type.Optional(Type.Array(Type.Number())),
+    fields: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 
-export const findRootsOutputSchema = Type.Object({
-    tool: Type.Literal("find_roots"),
-    query: Type.Object({
-        text: Type.Optional(Type.String()),
-        app: Type.Optional(Type.String()),
-        pid: Type.Optional(Type.Number()),
-        kind: Type.Optional(Type.Union([Type.Literal("window"), Type.Literal("menu"), Type.Literal("popover"), Type.Literal("dialog")])),
-    }),
-    totalMatches: Type.Optional(Type.Number()),
-    returned: Type.Optional(Type.Number()),
-    hasMore: Type.Optional(Type.Boolean()),
-    windows: Type.Array(
-        Type.Object({
-            app: Type.String(),
-            pid: Type.Number(),
-            kind: Type.String(),
-            windowTitle: Type.String(),
-            windowId: Type.Optional(Type.Number()),
-            windowRef: Type.String(),
-            nativeWindowRef: Type.Optional(Type.String()),
-            framePoints: rectSchema,
-            scaleFactor: Type.Number(),
-            isMinimized: Type.Boolean(),
-            isOnscreen: Type.Boolean(),
-            isMain: Type.Boolean(),
-            isFocused: Type.Boolean(),
-            isModal: Type.Boolean(),
-            role: Type.Optional(Type.String()),
-            subrole: Type.Optional(Type.String()),
-            zOrder: Type.Number(),
-            score: Type.Number(),
-        }),
-    ),
-    config: configSchema,
-});
-
-const computerUseSchema = Type.Object({
-    tool: Type.String(),
-    target: targetSchema,
-    capture: captureSchema,
-    lookId: Type.Optional(Type.String()),
-    view: viewSchema,
-    baseStateId: Type.Optional(Type.String()),
-    changes: Type.Optional(Type.Unknown()),
-    viewReason: Type.Optional(viewReasonSchema),
-    outline: Type.Optional(Type.Unknown()),
-    note: Type.Optional(Type.Unknown()),
-    activation: activationSchema,
-    execution: executionSchema,
-    config: Type.Optional(configSchema),
-    helper: Type.Optional(Type.Unknown()),
-    status: Type.Optional(Type.Literal("ok")),
-    axDiagnostics: Type.Optional(Type.Unknown()),
-    imageReason: Type.Optional(imageReasonSchema),
-});
-
-const terminalDesktopActionSchema = Type.Object({
-    tool: Type.Literal("act_ui"),
-    status: Type.Union([Type.Literal("target_closed"), Type.Literal("post_action_observation_failed")]),
-    baseStateId: Type.String(),
-    target: targetSchema,
-    execution: executionSchema,
-    error: Type.Object({ code: Type.String(), message: Type.String() }),
-});
-
-export const observeUiOutputSchema = computerUseSchema;
-export const actUiOutputSchema = Type.Union([computerUseSchema, terminalDesktopActionSchema]);
-
-const outlineToolSchema = Type.Object({
-    tool: Type.Union([Type.Literal("search_ui"), Type.Literal("expand_ui"), Type.Literal("inspect_ui")]),
-    stateId: Type.Optional(Type.String()),
-    lookId: Type.Optional(Type.String()),
-    outline: Type.Optional(Type.Unknown()),
-    totalMatches: Type.Optional(Type.Number()),
-    returned: Type.Optional(Type.Number()),
-    hasMore: Type.Optional(Type.Boolean()),
-    matches: Type.Optional(Type.Array(matchSummarySchema)),
-    target: Type.Optional(Type.Unknown()),
-    note: Type.Optional(Type.Unknown()),
-});
-
-export const searchUiOutputSchema = outlineToolSchema;
-export const expandUiOutputSchema = outlineToolSchema;
-export const inspectUiOutputSchema = outlineToolSchema;
-
-export const readTextOutputSchema = Type.Object({
-    tool: Type.Literal("read_text"),
-    ref: Type.Optional(Type.String()),
-    offset: Type.Number(),
-    limit: Type.Number(),
-    totalChars: Type.Optional(Type.Number()),
-    totalBytes: Type.Optional(Type.Number()),
-    hasMore: Type.Boolean(),
-    complete: Type.Optional(Type.Boolean()),
-    text: Type.String(),
-});
-
-export const waitForOutputSchema = Type.Object({
-    tool: Type.Literal("wait_for"),
-    stateId: Type.String(),
-    baseStateId: Type.Optional(Type.String()),
-    view: viewSchema,
-    changes: Type.Optional(Type.Unknown()),
-    found: Type.Boolean(),
-    gone: Type.Optional(Type.Boolean()),
-    timedOut: Type.Optional(Type.Boolean()),
-    target: Type.Optional(matchSummarySchema),
-    nodeCount: Type.Optional(Type.Number()),
+const verificationSchema = Type.Object({
+    status: Type.Union([Type.Literal("verified"), Type.Literal("preexisting"), Type.Literal("failed")]),
     text: Type.Optional(Type.String()),
     role: Type.Optional(Type.String()),
     value: Type.Optional(Type.String()),
-    scopeRef: Type.Optional(Type.String()),
-    outline: Type.Unknown(),
+    gone: Type.Optional(Type.Boolean()),
+    timeoutMs: Type.Number(),
+});
+
+const errorSchema = Type.Object({
+    code: Type.String(),
+    message: Type.String(),
+});
+
+export const listAppsOutputSchema = Type.Object({
+    apps: Type.Array(Type.Object({
+        app: Type.String(),
+        name: Type.Optional(Type.String()),
+        pid: Type.Optional(Type.Number()),
+        windows: Type.Array(windowSchema),
+    })),
+    windows: Type.Array(windowSchema),
+    total: Type.Number(),
+    returned: Type.Number(),
+});
+
+export const getWindowStateOutputSchema = Type.Object({
+    stateId: Type.String(),
+    window: windowSchema,
+    accessibility: Type.Union([accessibilitySchema, Type.Null()]),
+    screenshots: Type.Array(screenshotSchema),
+    matches: Type.Optional(Type.Number()),
+    activation: Type.Optional(activationSchema),
+});
+
+export const actOutputSchema = Type.Object({
+    stateId: Type.Optional(Type.String()),
+    window: windowSchema,
+    outcome: Type.Union([Type.Literal("worked"), Type.Literal("didnt"), Type.Literal("unknown")]),
+    verification: Type.Optional(verificationSchema),
+    view: Type.Union([Type.Literal("diff"), Type.Literal("full")]),
+    changes: Type.Optional(Type.Array(changeSchema)),
+    accessibility: Type.Optional(accessibilitySchema),
+    screenshots: Type.Optional(Type.Array(screenshotSchema)),
+    error: Type.Optional(errorSchema),
+    activation: Type.Optional(activationSchema),
+});
+
+export const waitForOutputSchema = Type.Object({
+    found: Type.Boolean(),
+    timedOut: Type.Optional(Type.Boolean()),
+    stateId: Type.String,
+    view: Type.Union([Type.Literal("diff"), Type.Literal("full")]),
+    changes: Type.Optional(Type.Array(changeSchema)),
+    accessibility: Type.Optional(accessibilitySchema),
+    match: Type.Optional(Type.Object({
+        elementIndex: Type.Number(),
+        role: Type.String(),
+        label: Type.String(),
+    })),
+});
+
+export const launchAppOutputSchema = Type.Object({
+    launched: Type.Boolean(),
+    windows: Type.Array(windowSchema),
+    error: Type.Optional(errorSchema),
 });

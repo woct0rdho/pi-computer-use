@@ -1,11 +1,9 @@
 use serde_json::json;
 
-/// The protocol types under test are expected to be exported from the library crate.
+// The protocol types under test are expected to be exported from the library crate.
 use windows_bridge::{protocol::PROTOCOL_VERSION, ErrorCode, ProtocolError, Request, Response};
 
-// ---------------------------------------------------------------------------
 // Request parsing
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_parse_valid_request() {
@@ -72,9 +70,7 @@ fn test_parse_request_wrong_types() {
     assert!(result.is_err(), "non-string id should be rejected");
 }
 
-// ---------------------------------------------------------------------------
 // Success response serialization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_serialize_success_response() {
@@ -100,9 +96,7 @@ fn test_serialize_success_with_null_result() {
     assert_eq!(parsed["result"], serde_json::Value::Null);
 }
 
-// ---------------------------------------------------------------------------
 // Error response serialization
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_serialize_capability_deferred_error() {
@@ -182,9 +176,7 @@ fn test_serialize_target_not_found_error() {
     assert_eq!(parsed["error"]["code"], "target_not_found");
 }
 
-// ---------------------------------------------------------------------------
 // ErrorCode Display
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_error_code_display() {
@@ -201,9 +193,7 @@ fn test_error_code_display() {
     assert_eq!(ErrorCode::InternalError.to_string(), "internal_error");
 }
 
-// ---------------------------------------------------------------------------
 // Integration: round-trip request + response
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_round_trip_request_response() {

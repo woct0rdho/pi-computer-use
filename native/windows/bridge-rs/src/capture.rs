@@ -23,19 +23,17 @@ use image::{imageops::FilterType, ExtendedColorType, ImageEncoder, RgbaImage};
 #[cfg(windows)]
 use serde_json::json;
 
-// ---------------------------------------------------------------------------
 // Public interface
-// ---------------------------------------------------------------------------
 
 /// Capture a screenshot of the target window, optionally extracting UIA
 /// accessibility elements from the same window.
 ///
 /// # Arguments
 ///
-/// * `store` - RefStore containing the window handle for `target_ref`.
+/// - `store` - RefStore containing the window handle for `target_ref`.
 ///   Also receives inserted element refs when `include_elements` is true.
-/// * `target_ref` - Reference to the window to capture.
-/// * `include_elements` - When true, also extracts UIA elements and includes
+/// - `target_ref` - Reference to the window to capture.
+/// - `include_elements` - When true, also extracts UIA elements and includes
 ///   them in the response as an `axTargets` array.
 ///
 /// # Returns
@@ -77,9 +75,7 @@ pub fn screenshot(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Windows-specific implementation
-// ---------------------------------------------------------------------------
 
 #[cfg(windows)]
 use windows::Win32::Foundation::{HWND, RECT};
@@ -101,7 +97,7 @@ fn screenshot_impl(
     include_elements: bool,
     max_dimension: Option<u32>,
 ) -> Result<Value, ProtocolError> {
-    // 1. Look up the window handle.
+    // Look up the window handle.
     let native = store.get_window(target_ref).ok_or_else(|| {
         ProtocolError::new(
             format!("Window ref '{}' not found", target_ref),
@@ -112,13 +108,13 @@ fn screenshot_impl(
 
     let mut warnings: Vec<String> = Vec::new();
 
-    // 2. Check for minimized state.
+    // Check for minimized state.
     let is_minimized = unsafe { IsIconic(hwnd).as_bool() };
     if is_minimized {
         warnings.push("window_minimized".to_owned());
     }
 
-    // 3. Resolve the visible frame and the raw window rect.
+    // Resolve the visible frame and the raw window rect.
     //
     // `GetWindowRect` includes the invisible resize borders on Windows 10/11,
     // while `framePoints` and the image must describe the same visible region.
@@ -182,9 +178,9 @@ fn screenshot_impl(
         }));
     }
 
-    // 4. GDI capture (unsafe FFI block).
+    // GDI capture (unsafe FFI block).
     // SAFETY: All GDI objects are created and destroyed within this
-    // function.  Object lifetimes follow the Acquire -> Use -> Release
+    // function. Object lifetimes follow the Acquire -> Use -> Release
     // pattern with proper cleanup on every error path.
     let (png_base64, output_width, output_height) =
         unsafe { gdi_capture_to_base64(hwnd, full.0, full.1, full.2, full.3, crop, max_dimension) }?;
@@ -206,7 +202,7 @@ fn screenshot_impl(
         "warnings": warnings,
     });
 
-    // 5. Optionally extract UIA accessibility elements.
+    // Optionally extract UIA accessibility elements.
     if include_elements {
         let elements = crate::uia::extract_elements(store, hwnd.0 as isize);
         if !elements.is_empty() {
@@ -265,7 +261,7 @@ unsafe fn gdi_capture_to_base64(
     let old_bitmap = SelectObject(hdc_mem, HGDIOBJ(hbitmap.0));
 
     // Render the window content using PrintWindow. PW_RENDERFULLCONTENT is
-    // required for DirectComposition/GPU-composited surfaces; fall back to the
+    // required for DirectComposition/GPU-composited surfaces. Fall back to the
     // legacy flag when the window does not support it.
     let mut pw_ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT));
     if !pw_ok.as_bool() {
@@ -351,7 +347,7 @@ unsafe fn gdi_capture_to_base64(
     // Crop the full-window bitmap to the visible DWM frame region.
     let (mut bits, width, height) = crop_bgra(bits, width, height, crop);
 
-    // Convert BGRA -> RGBA (GDI returns B,G,R,A; PNG expects R,G,B,A).
+    // Convert BGRA -> RGBA (GDI returns B,G,R,A. PNG expects R,G,B,A).
     for chunk in bits.chunks_exact_mut(4) {
         chunk.swap(0, 2);
     }
@@ -432,9 +428,7 @@ fn crop_bgra(
     (cropped, cw, ch)
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod unit_tests {
@@ -444,7 +438,7 @@ mod unit_tests {
     use crate::refs::NativeHandle;
     use crate::state::StateId;
 
-    // -- Platform support check (non-Windows) -------------------------------
+    // Platform support check (non-Windows)
 
     #[test]
     #[cfg(not(windows))]
@@ -457,12 +451,12 @@ mod unit_tests {
         assert_eq!(err.code, ErrorCode::UnsupportedPlatform);
     }
 
-    // -- Response shape tests (cross-platform) -----------------------------
+    // Response shape tests (cross-platform)
 
     #[test]
     fn test_screenshot_response_shape_json() {
         // Verify that a successful screenshot response serialises to the
-        // expected JSON shape.  This test does not require a real window.
+        // expected JSON shape. This test does not require a real window.
         let state_id = StateId::fresh("s");
         let response = serde_json::json!({
             "target": "@w1",
@@ -519,8 +513,8 @@ mod unit_tests {
     #[test]
     fn test_screenshot_target_not_found_error() {
         // Verify that a non-existent window ref produces the expected error.
-        // On non-Windows the platform check returns UnsupportedPlatform first;
-        // on Windows an empty store would return TargetNotFound.
+        // On non-Windows the platform check returns UnsupportedPlatform first.
+        // On Windows an empty store would return TargetNotFound.
         let mut store = RefStore::new();
         let wref = WindowRef { id: 999 };
         let result = screenshot(&mut store, &wref, false, None);
@@ -532,7 +526,7 @@ mod unit_tests {
         assert_eq!(err.code, ErrorCode::TargetNotFound);
     }
 
-    // -- Bitmap cropping ---------------------------------------------------
+    // Bitmap cropping
 
     #[test]
     #[cfg(windows)]
@@ -565,7 +559,7 @@ mod unit_tests {
         assert_eq!(degenerate, bits);
     }
 
-    // -- Windows-only integration tests ------------------------------------
+    // Windows-only integration tests
 
     #[test]
     #[cfg(windows)]
@@ -603,7 +597,7 @@ mod unit_tests {
         let mut store = RefStore::new();
         let wref = store.insert_window(NativeHandle::new(0));
 
-        // Same as above; just check that two calls produce different IDs
+        // Same as above. Just check that two calls produce different IDs
         // when they succeed or the same error when they fail.
         let result_a = screenshot(&mut store, &wref, false, None);
         let result_b = screenshot(&mut store, &wref, false, None);

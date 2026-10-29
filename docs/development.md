@@ -3,71 +3,77 @@
 ## Repository layout
 
 ```text
-extensions/computer-use.ts       Public Pi tool registration
-src/bridge.ts                    TypeScript runtime and tool implementation
-src/actions.ts                   Action preparation and result reconciliation
-src/runtime.ts                   Immutable state store and resource scheduler
-src/state.ts                     Saved UI state ownership and restoration
-src/view.ts                      Stable refs and resulting-state change views
-src/outline.ts                   Outline parsing, folding, search, and ref mapping
-src/schemas.ts                   Structured tool-result schemas
-src/note.ts                      Disposable running-note generation
+extensions/computer-use.ts       five public Pi tools
+src/bridge.ts                    tool coordination and state flow
+src/contract.ts                  public inputs/results
+src/schemas.ts                   structured output schemas
+src/actions.ts                   action validation and preparation
+src/outline.ts                   UIA outline parsing, folding, query, indexes
+src/view.ts                      ref stabilization and successor diffs
+src/state.ts                     immutable observation store
+src/runtime.ts                   bounded state store and resource scheduler
+src/output.ts                    bounded model-facing output
 src/platform/windows/            Windows backend and helper client
-native/windows/bridge-rs/        Windows UI Automation helper (Rust)
-scripts/build-native.mjs         Windows helper build script
-scripts/setup-helper.mjs         Windows helper install script
-scripts/check-invariants.mjs     Architecture invariant checks
-scripts/check-runtime-concurrency.mjs Scheduler/state concurrency checks
+native/windows/bridge-rs/        Rust UIA/capture/input/launch helper
 ```
 
-The public tool surface lives in `extensions/computer-use.ts`. Keep it small. Internal complexity belongs in `src/bridge.ts`, `src/outline.ts`, `src/note.ts`, and the native helper.
+Keep the public surface at five tools. Internal complexity belongs in `bridge.ts`, `outline.ts`, `view.ts`, and the native helper.
 
 ## Checks
 
-Run all static checks:
-
-```bash
+```powershell
 pnpm test
-```
-
-This runs TypeScript, tool-schema compatibility checks, architecture invariants, and the Windows helper build/install script checks.
-
-Rebuild the native helper after Rust changes:
-
-```bash
+cargo test --locked --manifest-path native/windows/bridge-rs/Cargo.toml
 pnpm run build:native
 ```
 
-Run the native helper unit tests:
-
-```bash
-cargo test --locked --manifest-path native/windows/bridge-rs/Cargo.toml
-```
+`pnpm test` covers:
+- TypeScript typechecking
+- function-call schema compatibility
+- bounded output
+- state-store and scheduler concurrency
+- public-surface invariants
+- platform/backend conformance
+- native helper build/install scripts
+- packaged prebuilt helper and skill assets
 
 ## Architecture rules
 
-The runtime is state-scoped and outline-first:
+- The only public action entrypoint is `act`.
+- Every action is bound to an immutable `stateId`.
+- Elements are model-facing numeric `elementIndex` values.
+- Coordinates are window-relative screenshot pixels.
+- Cached queries use the full stored outline; no recapture.
+- Successor states return a diff unless identity confidence is low or the change budget is exceeded.
+- `wait_for` uses native UIA waits; never add a polling loop.
+- `launch_app` never interprets shell commands.
+- Do not add browser/CDP surfaces.
+- Do not add a custom JS REPL; use Pi codemode.
 
-- `observe_ui` returns a folded UI outline and running note.
-- `search_ui`, `expand_ui`, and `inspect_ui` provide progressive disclosure.
-- `act_ui` is the only public desktop action entrypoint.
-- UI observations are immutable records. Request-local hydration replaces global current state.
-- Cached queries bypass scheduling. Live work is ordered per physical resource.
-- The helper owns grounding, preflight, execution, and verification.
-- Removed direct tools such as `screenshot`, `click`, `set_text`, and `computer_actions` should not reappear as public extension tools.
+Run `pnpm run test:invariants` after changing the public surface or state model.
 
-Run invariants after architecture changes:
+## Native helper
 
-```bash
-pnpm run test:invariants
+Build:
+
+```powershell
+pnpm run build:native
 ```
 
-## Native Windows helper
-
-Development uses the Windows platform backend/helper and the active desktop session. The helper is built from `native/windows/bridge-rs/` with Cargo and installs to:
+The release binary is written to `prebuilt/windows/windows-bridge.exe` and installed to:
 
 ```text
 %USERPROFILE%\.pi\agent\helpers\pi-computer-use\windows-bridge.exe
 ```
 
-Set `PI_COMPUTER_USE_WINDOWS_HELPER_PATH` to use an isolated helper location during development or testing.
+Set `PI_COMPUTER_USE_WINDOWS_HELPER_PATH` for an isolated test destination.
+
+## Manual smoke test
+
+- `list_apps` returns windows.
+- `get_window_state` returns a tree and `stateId`.
+- `get_window_state` with `stateId` and `query` does not recapture.
+- `act` clicks an element and returns a successor diff.
+- `wait_for` returns a successor state.
+- `launch_app` returns a new window.
+- Codemode calls `tools.list_apps`, `tools.get_window_state`, and `tools.act`.

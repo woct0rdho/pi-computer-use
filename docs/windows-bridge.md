@@ -1,65 +1,106 @@
 # Windows Bridge
 
-`windows-bridge.exe` is the native helper for the root-forest Windows backend. It is spawned by the TypeScript helper client and speaks stdin/stdout JSON-lines protocol version 3.
+`windows-bridge.exe` is the native helper for the Windows backend. It is spawned by the TypeScript client and speaks stdin/stdout JSON-lines protocol.
 
-## Backend contract
+## Commands
 
-The TypeScript Windows backend is intentionally stateless. It forwards root-forest seam calls to the Rust helper:
-
-- `listRoots({ pid? })`: cheap HWND metadata only. Roots do not fabricate pairing or sheet counts. HWND/class/style diagnostics live under `metadata` when useful.
-- `look`: atomic observe result with `lookId`, outline, window payload (`rootRef`, `kind`, frame, scale), and optional image. Menu/outline-only roots omit `image`. Coordinate acts against those roots fail with `coordinate_unavailable_for_root`.
-- `act`: forwards the typed `PlatformActRequest` whole. The helper validates `lookId`, resolves refs from helper-owned look state, applies policy, executes, and returns honest outcome/evidence plus `performed.deltaSource` and shallow `rootDelta`.
-- `uiaReadText` / `uiaWaitFor`: helper-side live UIA reads/polls. No TypeScript screenshot polling or module-level element state is used.
+| Command | Purpose |
+|---|---|
+| `diagnostics` | Protocol version, architecture invariants, process metadata. |
+| `listRoots` | Enumerate visible top-level windows and transient roots. |
+| `look` | Capture a UIA outline and optional screenshot for one root. |
+| `focusWindow` | Raise/focus one root. |
+| `act` | Execute one checked action against a look. |
+| `actBatch` | Execute a one-root action transaction. |
+| `uiaReadText` | Read a page from a text-bearing UIA element. |
+| `uiaWaitFor` | Wait for a scoped UIA condition. |
+| `launchApp` | Launch an executable, shortcut, or URI. |
 
 ## Root metadata
 
-Windows roots are top-level HWNDs:
-
-- `#32768` class => `kind: "menu"`
-- `#32770` class => `kind: "dialog"`
+Windows roots are visible top-level HWNDs:
+- `#32768` => `kind: "menu"`
+- `#32770` => `kind: "dialog"`
 - owned popups => `kind: "popover"`
 - other HWNDs => `kind: "window"`
 
-The helper declares per-monitor-v2 DPI awareness at startup and reports `scaleFactor = GetDpiForWindow(hwnd) / 96`.
+The helper declares per-monitor-v2 DPI awareness and reports `scaleFactor = GetDpiForWindow(hwnd) / 96`.
 
-## Refs, actions, and deltas
+## Observation
 
-Observed `@e` refs store UIA RuntimeId and AutomationId metadata. Ref-targeted actions resolve a live `IUIAutomationElement` first:
+`look` combines:
+- UIA control-view extraction
+- optional Windows.Graphics.Capture
+- PrintWindow/GDI fallback
+- bounded outline extraction
+- native look ownership
 
-- `press`/`click`: `InvokePattern`, then `TogglePattern`, then `SelectionItemPattern`, then `ExpandCollapsePattern`, then LegacyIAccessible default action. Successful pattern grounding reports `grounding: "description"`, `delivery: "ax"`. Coordinate fallback is blocked by `ax_only` and preflights occlusion with `ElementFromPoint`.
-- `setText`: `ValuePattern.SetValue`, then `CurrentValue` read-back. `evidence.value` is the value actually read.
-- `scroll`: `ScrollPattern` where exposed. Wheel fallback is raw input and policy-gated.
-- `typeText`, `keypress`, `drag`, `moveMouse`, and coordinate targets remain raw input and report `unknown` unless verified.
+The TypeScript layer assigns numeric element indexes from the stable internal refs and folds the full tree for the model.
 
-`readText` resolves the live element and reads TextPattern -> ValuePattern -> CurrentName. `waitFor` polls the live UIA subtree at about 150ms intervals.
+## Actions
 
-Root deltas are baselined at act time. The helper polls a cheap top-level HWND signature for early settle (`deltaSource: "win-poll"`), then takes short catch-up snapshots before returning the final full before/after diff. If no change is seen before the cap, it returns the full snapshot timeout path (`"snapshot"`).
+`act` resolves ref targets against the exact look that produced them:
+- `press`/`click`: Invoke, Toggle, SelectionItem, ExpandCollapse, LegacyIAccessible
+- `setText`: ValuePattern with read-back
+- `scroll`: ScrollPattern, optional raw-input fallback
+- `typeText`, `keypress`, `drag`: raw input with foreground policy
+- coordinate actions: foreground activation, occlusion preflight, and `SendInput`
 
-## Protocol
+Coordinate targets require a screenshot-bearing look. Ambiguous pointer outcomes are reported as `unknown` and are not replayed.
 
-Request envelope:
+## launchApp
+
+`launchApp` uses `ShellExecuteExW` with `SEE_MASK_NOCLOSEPROCESS`:
+- refuses script files (`.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.wsf`).
+- refuses terminal launchers (`cmd.exe`, PowerShell, pwsh, Windows Terminal, conhost, WSL).
+- passes arguments without shell interpretation.
+- returns the launched process id.
+- does not auto-elevate.
+
+The TypeScript layer observes window appearance and returns newly appeared windows, including windows owned by an activation broker rather than the launched pid.
+
+## Protocol envelope
 
 ```json
-{ "protocolVersion": 3, "id": "req_1", "cmd": "listRoots", "args": {} }
+{ "protocolVersion": 4, "id": "req_1", "cmd": "listRoots", "args": {} }
 ```
-
-Response envelope:
 
 ```json
-{ "protocolVersion": 3, "id": "req_1", "ok": true, "result": { } }
+{ "protocolVersion": 4, "id": "req_1", "ok": true, "result": {} }
 ```
 
-Diagnostics (`cmd: "diagnostics"`) returns the protocol version and helper process metadata. The TypeScript backend rejects a mismatched version with a "Restart Pi ..." error.
+Errors:
 
-## Remote acceptance notes
+```json
+{
+  "protocolVersion": 4,
+  "id": "req_1",
+  "ok": false,
+  "error": { "message": "...", "code": "..." }
+}
+```
 
-- Item 5 / menus: click Notepad's File menu, read `rootDelta`, then observe the `appeared` root's `ref`. Menus are separate roots. Observing the original Notepad window will not show the menu contents.
-- Item 7 / occlusion: record element coordinates from a fresh look, cover the window, then issue a coordinate act (`target: { "x": ..., "y": ... }`, `policy: "default"`). Expect `occluded_target`. Ref-targeted acts may re-resolve and do not exercise this coordinate preflight path.
-- Item 8 / ref re-resolve: fresh look, capture any element ref, move the window, then act on the same ref with the same `lookId`. RuntimeId/AutomationId re-resolution should succeed with refound semantics, not `stale_ref`.
-- Pressability smoke: a fresh look at Win11 Notepad must show `canPress: true` on menu bar items and buttons. If not, attach the raw outline dump so the capability matrix can be inspected.
+## Concurrency
 
-## Local constraints
+- Multiple requests may be in flight and are correlated by id.
+- A fixed worker pool initializes UIA per worker.
+- Native look records are bounded. Stale looks fail closed.
+- Global physical input is serialized.
+- `actBatch` holds the physical-input lock when any step may use raw input and defers root deltas to one final settle.
 
-- Local child process only. No service, socket, or network listener.
-- Helper path: `%USERPROFILE%\.pi\agent\helpers\pi-computer-use\windows-bridge.exe`.
-- UIAccess/elevated-window limitations are reported as errors. There is no interactive permission grant loop.
+## Installation
+
+The helper installs to:
+
+```text
+%USERPROFILE%\.pi\agent\helpers\pi-computer-use\windows-bridge.exe
+```
+
+Override with `PI_COMPUTER_USE_WINDOWS_HELPER_PATH`.
+
+## Limitations
+
+- UIPI/elevated windows cannot be controlled by a non-elevated helper.
+- A non-elevated `launchApp` cannot start elevated targets.
+- Physical input requires the target to become foreground.
+- Background semantic UIA is preferred. Pointer and keyboard input have platform restrictions.

@@ -93,8 +93,6 @@ export interface OutlineSearchMatch {
     node: OutlineNode;
 }
 
-export type SerializedOutlineSearchMatch = Omit<OutlineSearchMatch, "node"> & { node?: never };
-
 export interface FoldResult {
     text: string;
     renderedRefs: string[];
@@ -272,8 +270,12 @@ export function outlineNodeLabel(node: OutlineNode): string {
     return node.title || node.description || node.value || node.identifier || node.text.map((item) => item.string).join(" ").trim();
 }
 
+function clip(value: string, max = 240): string {
+    return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+}
+
 function displayName(node: OutlineNode): string {
-    const label = outlineNodeLabel(node);
+    const label = clip(outlineNodeLabel(node));
     return `${node.role || "unknown"}${node.subrole ? `/${node.subrole}` : ""}${label ? ` ${JSON.stringify(label)}` : ""}`;
 }
 
@@ -285,6 +287,19 @@ export function outlineNodePath(node: OutlineNode): string {
         current = current.parent;
     }
     return parts.join(" > ");
+}
+
+export function outlineRefIndex(ref: string): number {
+    const match = /^@e(\d+)$/.exec(ref);
+    return match ? Number(match[1]) : 0;
+}
+
+export function elementIndexForNode(node: OutlineNode): number {
+    return outlineRefIndex(node.ref);
+}
+
+export function nodeByElementIndex(outline: Outline, index: number): OutlineNode | undefined {
+    return outline.nodes.find((node) => elementIndexForNode(node) === index);
 }
 
 function countDescendants(node: OutlineNode): { total: number; roles: Map<string, number>; pictureOnly: number } {
@@ -327,6 +342,7 @@ function foldedSummary(node: OutlineNode): string {
 
 function annotationText(node: OutlineNode): string {
     const annotations = [
+        node.focused ? "focused" : undefined,
         node.offscreen ? "offscreen" : undefined,
         node.pictureOnly ? "pictureOnly" : undefined,
         node.truncated ? "truncated" : undefined,
@@ -337,7 +353,7 @@ function annotationText(node: OutlineNode): string {
 
 function lineForNode(node: OutlineNode, depth: number, folded: boolean): string {
     const actions = node.actions.length ? ` {${node.actions.join(",")}}` : "";
-    return `${"  ".repeat(depth)}${node.ref} ${displayName(node)}${actions}${annotationText(node)}${folded ? foldedSummary(node) : ""}`;
+    return `${"  ".repeat(depth)}${elementIndexForNode(node)} ${displayName(node)}${actions}${annotationText(node)}${folded ? foldedSummary(node) : ""}`;
 }
 
 function pathRefs(node: OutlineNode): string[] {
@@ -362,6 +378,28 @@ function defaultUnfoldRefs(outline: Outline): Set<string> {
         }
     }
     return refs;
+}
+
+export function renderOutlineSubtree(target: OutlineNode, depth = 2, maxNodes = 150): FoldResult {
+    const lines: string[] = [];
+    const renderedRefs: string[] = [];
+    let truncated = false;
+    const maxDepth = Math.max(1, Math.min(8, Math.trunc(depth)));
+    const limit = Math.max(1, Math.trunc(maxNodes));
+    const render = (node: OutlineNode, level: number) => {
+        if (lines.length >= limit) {
+            truncated = true;
+            return;
+        }
+        const folded = node.children.length > 0 && level >= maxDepth;
+        lines.push(lineForNode(node, level, folded));
+        renderedRefs.push(node.ref);
+        if (folded) return;
+        for (const child of node.children) render(child, level + 1);
+    };
+    render(target, 0);
+    if (truncated) lines.push(`... subtree budget reached. Inspect a narrower element`);
+    return { text: lines.join("\n"), renderedRefs, nodeCount: countOutlineNodes(target), fullUnfoldLineCount: countOutlineNodes(target), truncated };
 }
 
 export function foldToBudget(outline: Outline, budget: Partial<typeof DEFAULT_BUDGET> = {}, unfoldPaths: string[] = []): FoldResult {
@@ -393,7 +431,7 @@ export function foldToBudget(outline: Outline, budget: Partial<typeof DEFAULT_BU
     render(outline.root, 0);
     if (truncated) {
         const remaining = Math.max(0, outline.nodes.length - renderedRefs.length);
-        lines.push(`... render budget reached: ${remaining} more nodes not shown; use search_ui or expand_ui(@eN)`);
+        lines.push(`... render budget reached: ${remaining} more nodes not shown. Query this state or inspect an element index`);
     }
     return {
         text: lines.join("\n"),
@@ -492,11 +530,6 @@ export function searchOutline(outline: Outline, text?: string, role?: string, ac
     return matches;
 }
 
-export function serializeOutlineSearchMatch(match: OutlineSearchMatch): SerializedOutlineSearchMatch {
-    const { node: _node, ...serialized } = match;
-    return serialized;
-}
-
 export function countOutlineNodes(root: OutlineNode): number {
     let count = 1;
     for (const child of root.children) count += countOutlineNodes(child);
@@ -510,11 +543,6 @@ export function serializeOutline(outline: Outline): SerializedOutline {
 export function serializeOutlineNode(node: OutlineNode): SerializedOutlineNode {
     const { parent: _parent, children, ...rest } = node;
     return { ...rest, children: children.map(serializeOutlineNode) };
-}
-
-export function serializeOutlineNodeShallow(node: OutlineNode): SerializedOutlineNode {
-    const { parent: _parent, children: _children, ...rest } = node;
-    return { ...rest, children: [] };
 }
 
 export function restoreOutline(serialized: SerializedOutline): Outline {

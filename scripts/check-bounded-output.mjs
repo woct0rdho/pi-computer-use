@@ -1,29 +1,19 @@
 import assert from "node:assert/strict";
-import { applyOutputEnvelope, boundToolError, clearStoredOutputs, MODEL_TEXT_MAX_BYTES, readStoredOutput, structuredContentFromDetails } from "../src/output.ts";
-import { searchOutlineRanked, serializeOutlineSearchMatch } from "../src/outline.ts";
+import { applyOutputEnvelope, boundToolError, MODEL_TEXT_MAX_BYTES, structuredContentFromDetails } from "../src/output.ts";
+import { searchOutlineRanked } from "../src/outline.ts";
 
-clearStoredOutputs();
 const oversized = "🙂".repeat(30_000);
-const bounded = applyOutputEnvelope("read_text", { content: [{ type: "text", text: oversized }], details: {} });
+const bounded = applyOutputEnvelope("get_window_state", { content: [{ type: "text", text: oversized }], details: {} });
 const visible = bounded.content[0].text;
 assert.ok(Buffer.byteLength(visible, "utf8") <= MODEL_TEXT_MAX_BYTES, "model-facing text exceeds the hard ceiling");
-const ref = visible.match(/"(@o\d+)"/)?.[1];
-const offset = Number(visible.match(/offset: (\d+)/)?.[1]);
-assert.ok(ref && Number.isFinite(offset), "truncated output must provide a continuation");
-const page = readStoredOutput(ref, offset);
-assert.ok(page?.text.length, "continuation page must exist");
-assert.equal(readStoredOutput(ref, offset)?.text, page.text, "continuation pages must be immutable");
-assert.doesNotThrow(() => new TextEncoder().encode(page.text), "continuation must preserve utf-8");
-const unaligned = readStoredOutput(ref, offset + 1);
-assert.ok(unaligned && !unaligned.text.startsWith("�"), "arbitrary offsets must align to utf-8 boundaries");
-const lineBounded = applyOutputEnvelope("observe_ui", { content: [{ type: "text", text: "x\n".repeat(3_000) }], details: {} });
-assert.ok(lineBounded.content[0].text.split("\n").length <= 2_000, "model-facing text exceeds the line ceiling");
-const boundedError = boundToolError("read_text", new Error("x".repeat(100_000)));
+assert.match(visible, /output truncated by get_window_state/, "truncated output must tell the model how to recover");
+const lineBounded = applyOutputEnvelope("get_window_state", { content: [{ type: "text", text: "x\n".repeat(3_000) }], details: {} });
+assert.ok(lineBounded.content[0].text.split("\n").length <= 2_001, "model-facing text exceeds the line ceiling");
+const boundedError = boundToolError("act", new Error("x".repeat(100_000)));
 assert.ok(Buffer.byteLength(boundedError.message, "utf8") <= MODEL_TEXT_MAX_BYTES, "tool errors must obey the text ceiling");
 
-const projected = structuredContentFromDetails({ tool: "observe_ui", renderedOutline: "rendered text", outline: { lookId: "l" } });
-assert.equal(projected.tool, "observe_ui", "projection dropped structured fields");
-assert.equal("renderedOutline" in projected, false, "projection must drop the rendered outline text");
+const details = { stateId: "s1", window: { app: "Notepad", id: 1 } };
+assert.equal(structuredContentFromDetails(details), details, "structured details must pass through unchanged");
 assert.equal(structuredContentFromDetails(undefined), undefined, "undefined details must not project");
 assert.equal(structuredContentFromDetails([1, 2]), undefined, "array details must not project");
 
@@ -35,12 +25,5 @@ const outline = { lookId: "look", root, nodes: [root, ...root.children], refToWi
 const ranked = searchOutlineRanked(outline, "save", "button", "press", 12);
 assert.deepEqual(ranked.matches.map((match) => match.matchReason), ["exact", "prefix", "substring", "fuzzy"]);
 assert.equal(ranked.totalMatches, 4);
-const serializedMatch = serializeOutlineSearchMatch(ranked.matches[0]);
-assert.equal("node" in serializedMatch, false, "agent-facing matches must not expose cyclic outline nodes");
-assert.doesNotThrow(
-    () => JSON.stringify({ tool: "wait_for", target: serializedMatch }),
-    "successful wait_for details must be session-serializable",
-);
-clearStoredOutputs();
 
 console.log("Bounded output and ranked search checks passed.");

@@ -25,9 +25,7 @@ use crate::state::StateId;
 #[cfg(windows)]
 use serde_json::json;
 
-// ---------------------------------------------------------------------------
 // Window enumeration
-// ---------------------------------------------------------------------------
 
 /// Enumerate visible top-level windows and return a JSON response value.
 ///
@@ -56,9 +54,7 @@ pub fn list_windows(store: &mut RefStore, filter_pid: Option<u64>) -> Result<Val
     }
 }
 
-// ---------------------------------------------------------------------------
 // Windows-specific implementation
-// ---------------------------------------------------------------------------
 
 #[cfg(windows)]
 use std::{thread, time::Duration};
@@ -80,8 +76,8 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetMessageW, GetWindow,
     GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
-    IsWindowVisible, SetForegroundWindow, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
-    EVENT_OBJECT_HIDE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE, GW_OWNER, MSG,
+    IsWindowVisible, SetForegroundWindow, ShowWindow, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY,
+    EVENT_OBJECT_HIDE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE, GW_OWNER, MSG, SW_RESTORE,
     WINEVENT_OUTOFCONTEXT, WS_EX_DLGMODALFRAME,
 };
 
@@ -497,6 +493,9 @@ pub fn focus_window(
             )
         })?;
         let hwnd = HWND(native.raw() as *mut _);
+        if unsafe { IsIconic(hwnd).as_bool() } {
+            let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+        }
         let already_focused = unsafe { GetForegroundWindow() == hwnd };
         let focused = already_focused || unsafe { SetForegroundWindow(hwnd).as_bool() };
         Ok(json!({ "focused": focused, "alreadyFocused": already_focused }))
@@ -518,6 +517,9 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
     #[cfg(windows)]
     {
         let target = HWND(hwnd as *mut _);
+        if unsafe { IsIconic(target).as_bool() } {
+            let _ = unsafe { ShowWindow(target, SW_RESTORE) };
+        }
         for _ in 0..4 {
             if unsafe { GetForegroundWindow() == target } {
                 return Ok(());
@@ -536,9 +538,7 @@ pub fn ensure_foreground(hwnd: isize) -> Result<(), ProtocolError> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod unit_tests {
@@ -546,7 +546,7 @@ mod unit_tests {
     #[cfg(not(windows))]
     use crate::error::ErrorCode;
 
-    // -- Platform support check (non-Windows) -------------------------------
+    // Platform support check (non-Windows)
 
     #[test]
     #[cfg(not(windows))]
@@ -558,7 +558,7 @@ mod unit_tests {
         assert_eq!(err.code, ErrorCode::UnsupportedPlatform);
     }
 
-    // -- JSON result shape --------------------------------------------------
+    // JSON result shape
 
     #[test]
     fn test_list_windows_result_shape_on_windows() {
@@ -605,7 +605,7 @@ mod unit_tests {
         }
     }
 
-    // -- Window refs and state IDs are fresh (Windows-only) -----------------
+    // Window refs and state IDs are fresh (Windows-only)
 
     #[test]
     #[cfg(windows)]
